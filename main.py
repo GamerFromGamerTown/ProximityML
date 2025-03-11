@@ -23,6 +23,7 @@ import numpy as np
 import random
 import re # regex
 import sys
+#import noise
 NONE, RED, GREEN, BLUE = "None", "Red", "Green", "Blue" # Players.
 ChosenX = 0
 ChosenY = 0
@@ -45,19 +46,38 @@ NumOfTiles = len(grid) * len(grid[0]) # Base * Height
 NumOfOccurrences = int(np.ceil(NumOfTiles/(PlayerCount*RollMax))) # This is how often the number shows up in the word bank.
 NumberBank = np.random.permutation([num for num in range(1, int(RollMax + 1)) for _ in range(NumOfOccurrences)]) # This gives each player a bank of shuffled, random numbers to choose from, so the game doesn't get too uneven.
 ValidTiles = []
+EvenRowOffsets = [(-1, 0), (1, 0), (-1, -1), (0, -1), (-1, 1), (0, 1)]
+OddRowOffsets  = [(-1, 0), (1, 0), (0, -1), (1, -1), (0, 1), (1, 1)]
 # endregion
 # It's Coding Time!
-# region 
-def RandomMove(): # Just a function to call.
+# region MainFunc
+
+def ValidTilesCheck():
   ValidTiles = []
   for row in grid:
       for hexagon in row:
           if hexagon["Owner"] is None and not hexagon["IsHole"]: # Searches every row for valid hexagons (ones that aren't holes or taken).
               ValidTiles.append(hexagon)
-         
+
+
+def GameLogic(player, x, y):
+    offsets = EvenRowOffsets if x % 2 == 0 else OddRowOffsets # If X is even, check which tiles it's congruent to.
+    for dx, dy in offsets: # It repeats this six times, for every possible neighbour.
+      new_x, new_y = x + dx, y + dy
+      if not (xMin <= new_x <= xMax and yMin <= new_y <= yMax): # Checks if it's inbounds.
+        continue # If it is not, move to the next possible adjacent hexagon.
+      ChosenSpot = grid[new_x][new_y]  
+      if ChosenSpot["Owner"] == player:
+        ChosenSpot["Value"] += 1
+      elif ChosenSpot["Owner"] != player and ChosenSpot["Value"] < grid[x][y]["Value"]:
+        ChosenSpot["Owner"] = player
+
+def RandomMove(): # Just a function to call.
+  ValidTilesCheck()
 
   if ValidTiles:  # Ensure there is at least one valid tile to choose from
       ChosenHex = random.choice(ValidTiles)
+      random.randint(0, 8)
       ChosenHex["Owner"] = "Red"
       ChosenHex["Value"] = int(random.choice(NumberBank))
       Scores[RED] += ChosenHex["Value"] # Adds the value to Red's final score.
@@ -79,54 +99,56 @@ def HumanMoveInput():
     if match:
       ChosenY, ChosenX = map(int, match.groups())
       ChosenX, ChosenY = ChosenX - 1, ChosenY - 1
-      print(f"X: {ChosenX}, Y: {ChosenY}")
-      inbounds = bool(xMin<=ChosenX<=xMax and yMin<=ChosenY<=yMax)
-      if inbounds:
+      print(f"X: {ChosenY}, Y: {ChosenX}")
+      inbounds = bool(xMin<=ChosenX<=xMax+1 and yMin<=ChosenY<=yMax-1)
+      if inbounds == True:
         break
       else:
-        print("Invalid input. Please enter in the format X,Y (e.g., 3,4).")
+        print("Invalid input.")
 # endregion
 
 while not done:
-    # Find all valid hexagons (not taken and not holes)
-    ValidTiles = [hexagon for row in grid for hexagon in row if hexagon["Owner"] is None and not hexagon["IsHole"]]
+  # Find all valid hexagons (not taken and not holes)
+  ValidTiles = [hexagon for row in grid for hexagon in row if hexagon["Owner"] is None and not hexagon["IsHole"]]
 
-    if not ValidTiles: # If there aren't any valid tiles, end the loop.
-        done = True
-        break
+  if not ValidTiles: # If there aren't any valid tiles, end the loop.
+    done = True
+    break
 
-    while ValidTiles: # While there are valid tiles,
-        RandomMove() # have the computer do a random move,
-        HumanMoveInput() # and then prompt for input.
+  while ValidTiles: # While there are valid tiles,
+    RandomMove() # have the computer do a random move,
+    HumanMoveInput() # and then prompt for input.
 
-        if not inbounds: # If the input is out of bounds, then inform the user so.
-            print("Out of bounds, please try again.")
-            HumanMoveInput()
-            continue
+    if not inbounds: # If the input is out of bounds, then inform the user so.
+        print("Out of bounds, please try again.")
+        HumanMoveInput()
+        continue
 
-        if grid[ChosenX][ChosenY]["Owner"] != None or grid[ChosenX][ChosenY]["Value"] != int(0): # If it's already taken, inform the user so.
-            print("Tile already taken, please try again.")
-            print("Tile chosen was", str(ChosenX)+",", str(ChosenY)+", inbounds is", str(inbounds)+", and the tile's owner and value are", grid[ChosenX][ChosenY]["Owner"], "and", str(grid[ChosenX][ChosenY]["Value"]), "respectively.", "Here is the grid. \n \n", grid) # Debugging
-            HumanMoveInput()
-            continue
+    if grid[ChosenX][ChosenY]["Owner"] != None or grid[ChosenX][ChosenY]["Value"] != int(0): # If it's already taken, inform the user so.
+        print("Tile already taken, please try again.")
+        print("Tile chosen was", str(ChosenX)+",", str(ChosenY)+", inbounds is", str(inbounds)+", and the tile's owner and value are", grid[ChosenX][ChosenY]["Owner"], "and", str(grid[ChosenX][ChosenY]["Value"]), "respectively.", "Here is the grid. \n \n", grid) # Debugging
+        HumanMoveInput()
+        continue
 
-        # However, if it's blank and a valid move, then assign the chosen tile an owner and a random value.
-        grid[ChosenX][ChosenY]["Owner"] = "Blue"
-        grid[ChosenX][ChosenY]["Value"] = int(random.choice(NumberBank))
-        print(grid)
-        print(NumberBank)
+    # However, if it's blank and a valid move, then assign the chosen tile an owner and a random value.
+    grid[ChosenX][ChosenY]["Owner"] = "Blue"
+    grid[ChosenX][ChosenY]["Value"] = int(random.choice(NumberBank))
+    GameLogic(BLUE, ChosenX, ChosenY)
 
+    print(grid)
+    print(NumberBank)
 
 # region WinnerCheck
-for row in grid: # Final score check--may be unnecessary if you add ot the score every turn, but given my code is unreliable, it's a good sanity check.
- for hexagon in row:
-    if hexagon["Owner"] is Blue: 
-      BlueFinalScore.append(hexagon[value])
-    elif hexagon["Owner"] is Red: 
-      RedFinalScore.append(hexagon[value])
-    elif hexagon["Owner"] is Green:
-      GreenFinalScore.append(hexagon[value])
-print(BlueFinalScore, RedFinalScore, GreenFinalScore)
+# for row in grid: # Final score check--may be unnecessary if you add ot the score every turn, but given my code is unreliable, it's a good sanity check.
+#  for hexagon in row:
+#     if hexagon["Owner"] is Blue: 
+#       BlueFinalScore.append(hexagon[value])
+#     elif hexagon["Owner"] is Red: 
+#       RedFinalScore.append(hexagon[value])
+#     elif hexagon["Owner"] is Green:
+#       GreenFinalScore.append(hexagon[value])
+# print(BlueFinalScore, RedFinalScore, GreenFinalScore)
+# endregion
 
 # region Checklist 
 """
@@ -134,15 +156,18 @@ Checklist
 1) get a grid of tiles [✓]
 2) manually place some hexagons [✓]
 3) get turns working [✓] YAY
-4) get an adjacency map (which tiles touch which) [X]
-5) implement logic (absorbing adjacent enemies, reinforcing allies) [X]
-6) determine score on-the-go, without relying on checking every score in the loop [X]
-7) determine winner at the end [X]
-8) get a representation of the grid (graphical or text-based, depending on how silly you feel) [X]
-9) get some basic rules-based bots to play against [X]
-10) impliment MCTS bots to encourage deeper thinking [X]
-11) plug this into something like pytorch--first random, then easy, medium, hard, MCTS easy, medium, hard, and then self-play [X]
-""" 
+4) determine which tiles touch which [✓]
+5) get a representation of the grid (text-based first, hopefully graphical later) [X]
+5.5) randomise who plays as who
+6) implement logic (absorbing adjacent enemies, reinforcing allies) [✓]
+7) determine score on-the-go, without relying on checking every score in the loop [X]
+8) determine winner at the end [X]
+9) get "holes" working [X]
+10) get some basic rules-based bots to play against [X]
+11) implement MCTS bots to encourage deeper thinking [X]
+12) optimise, esp. state values and excessive loops [X]
+13) plug this into something like pytorch--first random, then easy, medium, hard, MCTS easy, hard, and then self-play [X]
+"""
 # endregion
 # region misc
 """
@@ -162,5 +187,11 @@ medium) play a random move of the greediest 3
 hard) play the greediest move
 MCTS easy) use 2-ply search 
 MCTS hard) use the highest computationally reasonable search
+
+for holes, maybe do perlin noise, add a bias to the sides 4,4, normalize so only 
+10, 15, 20, and 30 tiles meet a threshold respectively (e.g. 0.3), and then
+any tile above the threshold becomes a hole. batch generate like 50k of these and choose
+them at random, and utilise them around 20-40% of the time. don't calculate 
+on-the-fly, it would be really expensive
 """
 #endregion
