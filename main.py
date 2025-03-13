@@ -30,7 +30,7 @@ Move2Type = 1
 Move3Type = 1
 PlayerCount = 2 
 NumBank1 = NumBank2 = NumBank3 = list(range(1, 21)) * 2
-random.shuffle(NuamBank1)
+random.shuffle(NumBank1)
 random.shuffle(NumBank2)
 random.shuffle(NumBank3)
 NONE, RED, GREEN, BLUE = "None", "Red", "Green", "Blue" # Players.
