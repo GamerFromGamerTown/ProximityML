@@ -19,87 +19,156 @@ Best,
 # endregion
 
 # region Initialize
-import numpy as np
+import numpy as np 
 import random
 import re # rege
 import sys
 #import noise
-# 1 = rand, 2 = human
-Move1Type = 1 # HUMAN DOESN'T WORK, FIX IT !!
-Move2Type = 1
-Move3Type = 1
-PlayerCount = 2 
+# This controls what type of player p1, p2, and p3 are.
+# 1: random, 2: human, 3: RandomAdjacentToSomethingMove, 
+p1movetype = 1 # keep these 3 vars! they're used to define the actual value
+p2movetype = 1
+p3movetype = 1
+HoleRandomnessType = 1 # 0 for 1 for pure randomness, 2 for perlin (which isn't yet implemented)
+PlayerCount = 3 
 NumBank1 = NumBank2 = NumBank3 = list(range(1, 21)) * 2
 random.shuffle(NumBank1)
 random.shuffle(NumBank2)
 random.shuffle(NumBank3)
-NONE, RED, GREEN, BLUE = "None", "Red", "Green", "Blue" # Players.
-xMax = int(9) # Sets X parameter to 1-10.
-yMax = int(7) # Sets Y parameter to 1-8.
+none, red, green, blue = "none", "red", "green", "blue" # Players.
+xMax = int(10) # Sets X parameter to 1-10.
+yMax = int(8) # Sets Y parameter to 1-8.
 xMin = int(0)
 yMin = int(0)
 RollMax = int(20) # Sets roll to d20.
-count = 0
-ValidTiles = []
-grid = [[{"Owner": "None", "Value": 0, "IsHole": False, "IsAdjacent": False, "IsValid": True} for _ in range(xMax)] for _ in range(yMax)] # Adds a 10x8 grid, with each hexagon having their owner, value, hole status.
+# Adds a 10x8 grid, with each hexagon having their owner, value, hole status. If it's a hole, it's invalid (opposite of IsHole).
 EvenRowOffsets = [(-1, 0), (1, 0), (-1, -1), (0, -1), (-1, 1), (0, 1)]
 OddRowOffsets  = [(-1, 0), (1, 0), (0, -1), (1, -1), (0, 1), (1, 1)]
-valid_tiles = set()
-adjacent_tiles = set()
+valid_tiles = set()  
+adjacent_tiles = [] 
+
+if HoleRandomnessType == 0:
+  grid = [[{"Owner": "none", "Value": 0, "IsHole": False, "IsAdjacent": False} for _ in range(xMax)] for _ in range(yMax)]
+if HoleRandomnessType == 1:
+  grid = [[{"Owner": "none", "Value": 0, "IsHole": True if random.random() < 0.1 else False, "IsAdjacent": False} for _ in range(xMax)] for _ in range(yMax)]
+else:
+  print("Warning, HoleRandomnessType is poorly defined. Proceeding with no holes.")
+  grid = [[{"Owner": "none", "Value": 0, "IsHole": False, "IsAdjacent":False} for _ in range(xMax)] for _ in range(yMax)]
+
+
+for y, row in enumerate(grid):
+  for x, hexagon in enumerate(row):
+    if hexagon["IsHole"] == False and hexagon["Value"] == 0:
+      valid_tiles.add((x,y))
+
+valid_tiles = list(valid_tiles)  # Convert set to list
+random.shuffle(valid_tiles)  # Now we can shuffle it ! (why is valid_tiles not a list to begin with?)
+
 # endregion
 # It's Coding Time!
-# region MainFunc
+# region MainFunctions
 
 class Player:
   def __init__(self, name):
     self.name = name
     self.score = 0
-    self.NumBank = list(range(1, 21)) * 2
+    self.NumBank = list(range(1, RollMax+1)) * 2
     self.FirstTime = True
+    self.MoveType = 0
 
 
 def PlayerAssignment():
-  PossiblePlayers = [RED, GREEN, BLUE]
+  PossiblePlayers = [red, green, blue]
   PlayerNums = ["Player1", "Player2", "Player3"]
   temp = random.sample(PossiblePlayers, 3)
   global Player1
   global Player2
   global Player3
-  Player1, Player2, Player3 = Player(temp[0]), Player(temp[1]), Player(temp[2])
+  Player1, Player2, Player3 = Player(temp[0]), Player(temp[1]), Player(temp[2]) # This makes each player randomly either red, green, or blue,
+  Player1.MoveType = p1movetype 
+  Player2.MoveType = p2movetype
+  Player3.MoveType = p3movetype
+  owner_to_player = {Player1.name: Player1, Player2.name: Player2, Player3.name: Player3}
 
 PlayerAssignment()
 
 def ApplyMechanics(player, x, y):
-    offsets = EvenRowOffsets if y % 2 == 0 else OddRowOffsets # If X is even, check which tiles it's congruent to.
-    for dx, dy in offsets: # It repeats this six times, for every possible neighbour.
-      new_x, new_y = x + dx, y + dy
-      if not (xMin <= new_x < xMax and yMin <= new_y < yMax): # Checks if it's inbounds
-        continue # If it is not, move to the next possible adjacent hexagon.
-      ChosenSpot = grid[new_y][new_x] 
-      if str(ChosenSpot["Owner"].lower()) == str(player.name.lower()):
-        ChosenSpot["Value"] += 1
-        player.score += 1
-      elif ChosenSpot["Owner"] and ChosenSpot["Owner"] != player and ChosenSpot["Value"] < grid[y][x]["Value"]:
-        player.score += ChosenSpot["Value"]
-        if str(ChosenSpot["Owner"].lower()) == str(Player1.name.lower()):
-          #print(ChosenSpot["Value"])
-          Player1.score -= int(ChosenSpot["Value"])
-        elif str(ChosenSpot["Owner"].lower()) == str(Player2.name.lower()):
-          Player2.score -= int(ChosenSpot["Value"])
-        elif str(ChosenSpot["Owner"].lower()) == str(Player3.name.lower()):
-          Player3.score -= int(ChosenSpot["Value"])
-        ChosenSpot["Owner"] = player.name
-        player.score += grid[y][x]["Value"]
+  base_value = grid[y][x]["Value"]  # value of the newly placed tile
+  offsets = EvenRowOffsets if y % 2 == 0 else OddRowOffsets
+  if (x,y) in adjacent_tiles:
+    adjacent_tiles.remove((x,y))
+  for dx, dy in offsets:
+    new_x, new_y = x + dx, y + dy
+    if not (xMin <= new_x < xMax and yMin <= new_y < yMax):
+      continue
+    neighbor = grid[new_y][new_x]
+    # This reinforces surrounding tiles if it's owned by the player.
+    if neighbor["Owner"] == player.name:
+      neighbor["Value"] += 1
+      player.score += 1
+    # if neighbor is owned by an opponent and its value is less than the new tile's value
+    elif neighbor["Owner"] != "none" and neighbor["Owner"] != player.name:
+      if neighbor["Value"] < base_value:
+        # Subtract the neighbor's value from the opponent
+        if neighbor["Owner"] == Player1.name:
+          Player1.score -= neighbor["Value"]
+        elif neighbor["Owner"] == Player2.name:
+          Player2.score -= neighbor["Value"]
+        elif neighbor["Owner"] == Player3.name:
+          Player3.score -= neighbor["Value"]
+        # Add the neighbor's value to the current player's score
+        player.score += neighbor["Value"]
+        # Finally, change ownership of the neighbor tile
+        neighbor["Owner"] = player.name
+
+def EndGame():
+  print(Player1.name, Player1.score, Player2.name, Player2.score, Player3.name, Player3.score) 
+  winner = max(Player1.score, Player2.score, Player3.score)
+  if Player1.score == winner: # Definitely a better way to do this, just a stopgap.
+    print("Player1 is the winner!", "("+Player1.name+")")
+  elif Player2.score == winner:
+    print("Player2 is the winner!", "("+Player2.name+")")
+  elif Player3.score == winner:
+    print("Player3 is the winner!", "("+Player3.name+")")
+  else:
+    print("A tie I'm too lazy to sort out!")
+  # SCHLAWG !! use enumerate()!
 
 def RandomMove(player, num): # Just a function to call.
-  if ValidTiles:  # Ensure there is at least one valid tile to choose from
-      choice = random.randint(0, len(ValidTiles)-1)
-      ChosenHex = ValidTiles[choice]
-      x, y = int(choice) % xMax, int(choice) // xMax
-      ChosenHex["Owner"] = player.name
-      ChosenHex["Value"] = num
-      Scores[player.name] += ChosenHex["Value"] # Adds the value to the player's final score.
-      return x, y
+  if valid_tiles:  # Ensure there is at least one valid tile to choose from  
+    x, y = valid_tiles.pop()
+    ChosenHex = grid[y][x]
+    ChosenHex["Owner"] = player.name
+    ChosenHex["Value"] = num
+    ApplyMechanics(player, x, y)
+    player.score += ChosenHex["Value"] # Adds the value to the player's final score.
+    return x, y
+
+
+def RandomAdjacentTileBot(player, num):
+  count = 0 
+  count1 = 0
+  if adjacent_tiles:  # Ensure there is at least one valid tile to choose from
+    count += 1
+    print("Adjacent tile, made adjacent move number", count1)
+    x, y = adjacent_tiles.pop()
+    ChosenHex = grid[y][x]
+    ChosenHex["Owner"] = player.name
+    ChosenHex["Value"] = num
+    player.score += ChosenHex["Value"] # Adds the value to the player's final score.
+    if (x, y) in valid_tiles:
+      valid_tiles.remove((x, y))
+    ApplyMechanics(player, x, y)
+    IsAdjacentToSomethingCheck(x, y)
+    MoveMade = True
+    return MoveMade, x, y
+  elif valid_tiles and not adjacent_tiles:
+    count += 1
+    print("No adjacent tile, forced to make random move number", count)
+    x, y = RandomMove(player, num)
+    MoveMade = True
+    return MoveMade, x, y
+
 
 def HumanMoveInput():
   while True:
@@ -117,37 +186,33 @@ def HumanMoveInput():
         continue
 
 def move(player, num, x, y):
-  ValidTiles = [hexagon for row in grid for hexagon in row if hexagon["Owner"] == "None" and not hexagon["IsHole"]] 
   if player is None or num is None or x is None or y is None:
     print("Warning: Parameter unset!")
-  if not ValidTiles: # If there aren't any valid tiles, end the loop.
+  if not valid_tiles: # If there aren't any valid tiles, end the loop.
     print("Invalid choice! Critical Error!")
-    #break
   if not (0 <= x <= xMax and 0 <= y <= yMax): # Checks if it's inbounds
     print("Out of bounds! Critical Error!")
-    #break
-  if grid[y][x]["Owner"] != "None":
+  if grid[y][x]["Owner"] != "none":
     print("Tile already occupied! Critical Error!")
-    #break
-  grid[y][x]["Owner"] = player
+  grid[y][x]["Owner"] = player.name
   grid[y][x]["Value"] = int(num)
+  valid_tiles.remove((x,y))
   ApplyMechanics(player, x, y)
 
-def IsAdjacentCheck(x, y):
-  offsets = EvenRowOffsets if y % 2 == 0 else OddRowOffsets # If X is even, check which tiles it's congruent to.
-  for dx, dy in offsets: # It repeats this six times, for every possible neighbour.
-    new_x, new_y = x + dx, y + dy
-    if not (xMin <= new_x < xMax and yMin <= new_y < yMax): # Checks if it's inbounds
-      continue # If it is not, move to the next possible adjacent hexagon.
-    ChosenSpot = grid[y][x] 
-    if ChosenSpot["Owner"] != None:
-      IsAdjacent = bool(1)
-      return IsAdjacent
-      break
-  IsAdjacent = bool(0)
-  return IsAdjacent
+def IsAdjacentToSomethingCheck(x, y):
+    offsets = EvenRowOffsets if y % 2 == 0 else OddRowOffsets
+    for dx, dy in offsets:
+        nx, ny = x + dx, y + dy
+        # Check if within bounds.
+        if not (xMin <= nx < xMax and yMin <= ny < yMax):
+            continue
+        # Only add if the tile is empty, not a hole, and not already in adjacent_tiles.
+        if grid[ny][nx]["Owner"] == "none" and not grid[ny][nx]["IsHole"]:
+            if (nx, ny) not in adjacent_tiles:
+                adjacent_tiles.append((nx, ny))
 
-def ScoreFromAbsorption(x,y):
+
+def ScoreFromAbsorption(player, x,y):
   PossibleScore = 0
   offsets = EvenRowOffsets if y % 2 == 0 else OddRowOffsets # If X is even, check which tiles it's congruent to.
   for dx, dy in offsets: # It repeats this six times, for every possible neighbour.
@@ -155,9 +220,9 @@ def ScoreFromAbsorption(x,y):
     if not (xMin <= new_x < xMax and yMin <= new_y < yMax): # Checks if it's inbounds
       continue # If it is not, move to the next possible adjacent hexagon.
     ChosenSpot = grid[new_y][new_x] 
-    if str(ChosenSpot["Owner"].lower()) == str(player.name.lower()):
+    if str(ChosenSpot["Owner"]) == str(player.name):
       PossibleScore += 1
-    elif ChosenSpot["Owner"] and ChosenSpot["Owner"] != player and ChosenSpot["Value"] < grid[y][x]["Value"]:
+    elif ChosenSpot["Owner"] and ChosenSpot["Owner"] != player.name and ChosenSpot["Value"] < grid[new_y][new_x]["Value"]:
       PossibleScore += ChosenSpot
   return PossibleScore
 
@@ -167,43 +232,71 @@ def Play(player):
     random.shuffle(player.NumBank)
     player.FirstTime = False 
   if len(player.NumBank) == 0:
+    print(grid)
     print("My work here is done.")
     exit()
-  if Move1Type == 1:
+  if player.MoveType == 1:
     x, y = RandomMove(player, player.NumBank[0])
-    ApplyMechanics(player, x, y)
+    IsAdjacentToSomethingCheck(x, y)
     del player.NumBank[0]
-  if Move2Type == 2:
+  if player.MoveType == 2:
     x, y = HumanMoveInput()
     move(player, player.NumBank[0], x, y)
     del player.NumBank[0]
+    print(grid)
+  if player.MoveType == 3:
+    MoveMade = RandomAdjacentTileBot(player, player.NumBank[0])
+    if MoveMade:
+      del player.NumBank[0]
+    else: 
+      print("Critical error! Move not recorded!")
+    # THESE IF-THEN STATEMENTS WORK!!
+    # (but are inefficent)
+    # consider replacing them with something more dynamic!
 
+def ValidTilesCheck():
+  if not valid_tiles:
+    print(grid)
+    return True
+  return False
 # endregion
-
 # region MainLoop
-ValidTiles = [hexagon for row in grid for hexagon in row if hexagon["Value"] == int(0) and not hexagon["IsHole"]]  # Consider removing the hole check.
-
 while True:
-  ValidTiles = [hexagon for row in grid for hexagon in row if hexagon["Value"] == int(0) and not hexagon["IsHole"]]  # Consider removing the hole check.
-  if not ValidTiles:
+  if not valid_tiles:
     print(grid)
     break
   Play(Player1)
+  if ValidTilesCheck():
+    break
   Play(Player2)
+  if ValidTilesCheck():
+    break
   if PlayerCount == 3:
+    if ValidTilesCheck():
+      break
     Play(Player3)
   
-print(Player1.name, Player1.score, Player2.name, Player2.score, Player3.name, Player3.score) 
-winner = max(Player1.score, Player2.score, Player3.score)
-if Player1.score == winner: # Definitely a better way to do this, just a stopgap.
-  print("Player1 is the winner!", "("+Player1.name+")")
-elif Player2.score == winner:
-  print("Player2 is the winner!", "("+Player1.name+")")
-elif Player3.score == winner:
-  print("Player3 is the winner!", "("+Player1.name+")")
-else:
-  print("A tie I'm too lazy to sort out!")
+EndGame()
 
+"""
+possible helping code for the optimisation of play()
+def move_random(player, num):
+  x, y = RandomMove(player, num)
+  ApplyMechanics(player, x, y)
+  return x, y
+
+def move_human(player, num):
+  x, y = HumanMoveInput()
+  move(player, player.NumBank[0], x, y)
+  del player.NumBank[0]
+  return x, y
+  print(grid)
+
+move_functs = {
+  1: move_random,
+  2: move_human
+}
+"""
 # endregion
 # region Checklist 
 
@@ -231,9 +324,9 @@ Checklist
 7) determine score on-the-go, without relying on checking every score in the loop [✓]
 8) determine winner at the end [✓]
 9) get "holes" working [X]
-10) get some basic rules-based bots to play against [X]
+10) get some basic rules-based bots to play against [X] 
 11) implement MCTS bots to encourage deeper thinking [X]
-12) optimise, esp. state values and excessive loops [X]
+12) optimise, esp. state values and excessive loops [-] # IsAdjacent is very expensive current-form.
 13) plug this into something like pytorch--first random, then easy, medium, hard, MCTS easy, hard, and then self-play [X]
 """
 # endregion
@@ -248,7 +341,7 @@ optimise to hell before AI training! try to make state values binary
 
 maybe for some rules based ones
 
-reallyeasy) consider round(ValidTiles/8) random moves, the greediest wins
+reallyeasy) consider round(valid_tiles/8) random moves, the greediest wins
 easy) play a random move out of the greediest 5
 medium) play a random move of the greediest 3
 hard) play the greediest move
