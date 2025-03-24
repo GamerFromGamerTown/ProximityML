@@ -30,6 +30,7 @@ from ordered_set import OrderedSet
 import random
 import re  # regex
 import sys
+import math 
 #sys.stdout = None  # Disable all printing if desired as a speed check
 
 # These control the player types:
@@ -62,7 +63,6 @@ owner_symbols = {
     3: "B"   # blue
 }
 
-
 # Hexagonal neighbour offsets (depending on row parity)
 EvenRowOffsets = [(-1, 0), (1, 0), (-1, -1), (0, -1), (-1, 1), (0, 1)]
 OddRowOffsets  = [(-1, 0), (1, 0), (0, -1), (1, -1), (0, 1), (1, 1)]
@@ -71,30 +71,28 @@ OddRowOffsets  = [(-1, 0), (1, 0), (0, -1), (1, -1), (0, 1), (1, 1)]
 valid_tiles = set()  
 adjacent_tiles = OrderedSet()
 
-def numpyify(x):
-  return np.uint16(~x & 0xFFFF)
-
 def get_owner(tile):
     mask = 0b0110000000000000
-    result = tile & numpyify(mask)
+    result = tile & (mask & 0xFFFF)
     owner = result >> 13
     return owner
 
 def set_owner(tile, owner):
+    print(bin(tile))
     mask = 0b0110000000000000  # Bits 13 and 14
-    cleared = tile & ~mask     # Zero out owner bits
+    cleared = tile & (~mask & 0xFFFF)     # Zero out owner bits
     result = cleared | (owner << 13)
     return np.uint16(result)
 
 def get_value(tile):
     mask = 0b0001111100000000
-    result = tile & numpyify(mask)
+    result = tile & (mask & 0xFFFF)
     owner_value = result >> 8
     return owner_value
 
 def set_value(tile, value):
   mask =  0b0001111100000000
-  result = tile &~ numpyify(mask)
+  result = tile & (mask & 0xFFFF)
   return (value << 8) | result
 
 def is_valid(tile):
