@@ -1,5 +1,4 @@
-# THIS IS NOT PRODUCTION READY
-
+# NOT production ready
 """
 Hey! This is my first Python project! I'm really learning as I go along, and a GPT really helps
 explain a bunch of concepts--don't worry, it's not writing it for me!
@@ -34,7 +33,7 @@ import sys
 #sys.stdout = None  # Disable all printing if desired as a speed check
 
 # These control the player types:
-p1movetype = 1  # e.g., 1: random, 2: human, 3: RandomAdjacentTileBot, etc.
+p1movetype = 6  # e.g., 1: random, 2: human, 3: RandomAdjacentTileBot, etc.
 p2movetype = 1
 p3movetype = 3
 HoleRandomnessType = 0  # 0 for none, 1 for pure randomness, 2 for perlin (not yet implemented)
@@ -81,11 +80,11 @@ def get_owner(tile):
     owner = result >> 13
     return owner
 
-
 def set_owner(tile, owner):
-  mask =  0b0110000000000000
-  result = tile &~ numpyify(mask)
-  return (owner << 13) | result
+    mask = 0b0110000000000000  # Bits 13 and 14
+    cleared = tile & ~mask     # Zero out owner bits
+    result = cleared | (owner << 13)
+    return np.uint16(result)
 
 def get_value(tile):
     mask = 0b0001111100000000
@@ -406,6 +405,7 @@ while True:
   
 EndGame()
 print(grid)
+print("Value at (0,0):", get_value(grid[0][0]))
 # endregion
 # region Checklist 
 
@@ -415,18 +415,17 @@ Checklist
 2) manually place some hexagons [✓]
 3) get turns working [✓] YAY
 4) determine which tiles touch which [✓]
-5) get a representation of the grid (text-based first, hopefully graphical later) [X]
+5) get a representation of the grid (text-based first, hopefully graphical later) [✓]
 6) implement logic (absorbing adjacent enemies, reinforcing allies) [✓] HELL YEAH
 7) determine score on-the-go, without relying on checking every score in the loop [✓]
 8) determine winner at the end [✓]
 9) get "holes" working [✓]
 10) get some basic rules-based bots to play against [✓] 
 11) optimise, esp. state values and excessive loops [-] # a lot harder than i thought
-12) vectorise?
-13) implement MCTS bots to encourage deeper thinking [X]
-14) plug this into something like pytorch--first random, then easy, medium, hard, MCTS easy, hard, and then self-play [X]
+12) implement MCTS bots to encourage deeper thinking [X] # try greedy rollouts and random rollouts
+13) plug this into something like pytorch--first random, then easy, medium, hard, MCTS easy, hard, and then self-play [X]
 (note, MCTS might be impossible due to state-space explosion, at least on my hardware--minmax )
-15) elo system? [X]
+14) elo system? [X]
 """
 # endregion
 # region misc
