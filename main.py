@@ -71,13 +71,13 @@ OddRowOffsets  = [(-1, 0), (1, 0), (0, -1), (1, -1), (0, 1), (1, 1)]
 valid_tiles = set()  
 adjacent_tiles = OrderedSet()
 
+# 15: IsValid, 14-13: Owner, 13-8 = value, rest are reserved (maybe x, y?)
+
 def get_owner(tile):
     mask = 0b0110000000000000
-    return (tile & mask) >> 13
-
+    return (tile & ~mask) >> 13
 
 def set_owner(tile, owner):
-    print(bin(tile))
     mask = 0b0110000000000000  # Bits 13 and 14
     cleared = tile & (~mask & 0xFFFF)     # Zero out owner bits
     result = cleared | (owner << 13)
@@ -85,9 +85,7 @@ def set_owner(tile, owner):
 
 def get_value(tile):
     mask = 0b0001111100000000
-    result = tile & (mask & 0xFFFF)
-    owner_value = result >> 8
-    return owner_value
+    return (tile & ~mask) >> 8
 
 def set_value(tile, value):
   mask =  0b0001111100000000
@@ -96,7 +94,7 @@ def set_value(tile, value):
 
 def is_valid(tile):
   mask =  0b1000000000000000
-  return bool(tile & mask)
+  return bool(tile & ~mask)
 
 if HoleRandomnessType == 0:
     # This sets bit 15 (0b1000000000000000) indicating a valid tile.
@@ -167,7 +165,7 @@ def ApplyMechanics(player, x, y, num):
         neighbor = grid[ny][nx]
         NeighborOwner = get_owner(neighbor)
         NeighborValue = int(get_value(neighbor))
-        if NeighborOwner == player.name:
+        if NeighborOwner == player.name and NeighborOwner == player.name:
             NewValue = NeighborValue + 1
             grid[ny][nx] = set_value(neighbor, NewValue)
             player.score += 1
@@ -239,6 +237,7 @@ def EndGame():
         print("Two-way tie! The winners are", str(winner.player), "and their colors are", str(winner.name))
     elif len(winner.name) == 3:
         print("Three-way tie!! The winners are", str(winner.player), "and their colors are", str(winner.name))
+        display_grid()
 
 def RandomMove(player, num):
     if valid_tiles:
@@ -276,8 +275,8 @@ def display_grid():
               symbol = " X "
           elif get_owner(tile) == none and TileValue == 0:
               symbol = " · "
-          elif get_owner(tile) == 0 and TileValue != 0:
-            print(f"⚠️ Unexpected: tile at ({x},{y}) has value {TileValue} but no owner?")
+          elif get_owner(tile) == none and get_value(tile) != 0b00000:
+            print(f"⚠️ Unexpected: tile at ({x},{y}) has value {TileValue} but no owner?", get_owner(tile))
             symbol = " ? "
           else:
               if TileValue < 10:
@@ -403,7 +402,7 @@ while True:
   
 EndGame()
 print(grid)
-print("Value at (0,0):", get_value(grid[0][0]))
+print("Value at (9,7):", get_value(grid[7][9]))
 # endregion
 # region Checklist 
 
