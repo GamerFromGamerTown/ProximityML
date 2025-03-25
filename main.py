@@ -34,11 +34,13 @@ import math
 #sys.stdout = None  # Disable all printing if desired as a speed check
 
 # These control the player types:
-p1movetype = 1  # e.g., 1: random, 2: human, 3: RandomAdjacentTileBot, etc.
+p1movetype = 1  # e.g., 1: random, 2: human, 3: RandomAdjacentTileBot, 4 is easy, 5 is medium, 6 is hard (greediest move)
 p2movetype = 1
 p3movetype = 1
-HoleRandomnessType = 0  # 0 for none, 1 for pure randomness, 2 for perlin (not yet implemented)
-PlayerCount = 3
+HoleRandomnessType = 1  # 0 for none, 1 for pure randomness, 2 for perlin (not yet implemented)
+PlayerCount = 2
+RandomHoleOccurancePercentage = 10
+RandomHoleOccurancePercentage = int(RandomHoleOccurancePercentage)
 
 # Number banks (shuffled)
 NumBank1 = NumBank2 = NumBank3 = list(range(1, 21)) * 2
@@ -72,10 +74,10 @@ valid_tiles = set()
 adjacent_tiles = OrderedSet()
 
 # 15: IsValid, 14-13: Owner, 13-8 = value, rest are reserved (maybe x, y?)
-
+# ADD AN X, Y BIT !! very useful for AI
 def get_owner(tile):
     mask = 0b0110000000000000
-    return (tile & ~mask) >> 13
+    return (tile & mask) >> 13
 
 def set_owner(tile, owner):
     mask = 0b0110000000000000  # Bits 13 and 14
@@ -85,23 +87,26 @@ def set_owner(tile, owner):
 
 def get_value(tile):
     mask = 0b0001111100000000
-    return (tile & ~mask) >> 8
+    return (tile & mask) >> 8
 
 def set_value(tile, value):
-  mask =  0b0001111100000000
-  result = tile & (mask & 0xFFFF)
-  return (value << 8) | result
+    mask = 0b0001111100000000
+    cleared = tile & (~mask & 0xFFFF)
+    return np.uint16(cleared | (value << 8))
 
 def is_valid(tile):
   mask =  0b1000000000000000
-  return bool(tile & ~mask)
+  return tile & mask
+
+if not RandomHoleOccurancePercentage >= 0 and not RandomHoleOccurancePercentage <= 1:
+  RandomHoleOccurancePercentage = 10
 
 if HoleRandomnessType == 0:
     # This sets bit 15 (0b1000000000000000) indicating a valid tile.
     grid = np.full((8, 10), 0b1000000000000000, dtype=np.uint16)
 elif HoleRandomnessType == 1:
     grid = np.full((8, 10), 0b1000000000000000, dtype=np.uint16)
-    hole_mask = np.random.rand(8, 10) < 0.1  
+    hole_mask = np.random.rand(8, 10) < RandomHoleOccurancePercentage/100
     # Remove the valid bit from holes (bitwise AND with complement)
     grid[hole_mask] = grid[hole_mask] & 0b0111111111111111  
 else:
@@ -180,35 +185,29 @@ def ApplyMechanics(player, x, y, num):
             player.score += NeighborValue
             grid[ny][nx] = set_owner(grid[ny][nx], player.name)
 
-def HardBot(player):
+def GreedyBot(player, greediness):
     scores = OrderedSet()
-    if len(adjacent_tiles) != 0:
-        for x, y in adjacent_tiles:
-            PossibleScore = ScoreFromAbsorption(player, x, y)  # Ensure this function is updated to use bitwise ops later.
-            scores.append(((x, y), PossibleScore))
-        best_move = max(scores, key=lambda item: item[1])
-        print(f"HardBot is choosing move: {best_move}, with score {best_move[1]}")
-        (x, y), _ = best_move
-        ApplyMechanics(player, x, y, player.NumBank[0])
-    else:
-        print("Warning, hardbot played a random move!")
-        RandomMove(player, player.NumBank[0])
-
-def MediumBot(player):
-    scores = OrderedSet()
+    try:
+      greediness = int(greediness)
+    except ValueError:
+      print("Warning, GreedyBot played a random move! Greediness not defined properly.")
+      RandomMove(player, player.NumBank[0])
+      return
+    if greediness > len(adjacent_tiles):
+      greediness = len(adjacent_tiles)
     if len(adjacent_tiles) != 0:
         for x, y in adjacent_tiles:
             PossibleScore = ScoreFromAbsorption(player, x, y)
             scores.append(((x, y), PossibleScore))
         # NOTE: The slicing used here on the max result ([-3:]) seems off.
         # You might want to sort the scores list and pick the top 3 moves.
-        top_3 = sorted(scores, key=lambda item: item[1], reverse=True)[:3]
-        best_move = random.choice(top_3)
-        print(f"MediumBot is choosing move: {best_move}, with score {best_move[1]}")
+        top_moves = sorted(scores, key=lambda item: item[1], reverse=True)[:greediness]
+        best_move = random.choice(top_moves)
+        print(f"GreedyBot is choosing move: {best_move}, with score {best_move[1]}")
         (x, y), _ = best_move
         ApplyMechanics(player, x, y, player.NumBank[0])
     else:
-        print("Warning, MediumBot played a random move!")
+        print("Warning, GreedyBot played a random move!")
         RandomMove(player, player.NumBank[0])
 
 class Winner:
@@ -256,6 +255,10 @@ def RandomAdjacentTileBot(player, num):
         return RandomMove(player, num)
 
 def display_grid():
+  owners = (grid & 0b0110000000000000) >> 13
+  values = (grid & 0b0001111100000000) >> 8
+  valids = (grid & 0b1000000000000000) > 0
+
   count = -1
   print("The scores are as follows:", 
       str(Player1.name).capitalize()+":", Player1.score, 
@@ -369,10 +372,12 @@ def Play(player):
         move(player, player.NumBank[0], x, y)
     elif player.MoveType == 3:
         MoveMade = RandomAdjacentTileBot(player, player.NumBank[0])
+    elif player.MoveType == 4:
+        GreedyBot(player, 5)
     elif player.MoveType == 5:
-        MediumBot(player)
+        GreedyBot(player, 3)
     elif player.MoveType == 6:
-        HardBot(player)
+        GreedyBot(player, 1)
     else:
         print("hey, movetype is poorly defined. Warning!")
     del player.NumBank[0]
