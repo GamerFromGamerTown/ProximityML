@@ -34,11 +34,11 @@ import math
 #sys.stdout = None  # Disable all printing if desired as a speed check
 
 # These control the player types:
-p1movetype = 6  # e.g., 1: random, 2: human, 3: RandomAdjacentTileBot, etc.
+p1movetype = 1  # e.g., 1: random, 2: human, 3: RandomAdjacentTileBot, etc.
 p2movetype = 1
-p3movetype = 3
+p3movetype = 1
 HoleRandomnessType = 0  # 0 for none, 1 for pure randomness, 2 for perlin (not yet implemented)
-PlayerCount = 2 
+PlayerCount = 3
 
 # Number banks (shuffled)
 NumBank1 = NumBank2 = NumBank3 = list(range(1, 21)) * 2
@@ -73,9 +73,8 @@ adjacent_tiles = OrderedSet()
 
 def get_owner(tile):
     mask = 0b0110000000000000
-    result = tile & (mask & 0xFFFF)
-    owner = result >> 13
-    return owner
+    return (tile & mask) >> 13
+
 
 def set_owner(tile, owner):
     print(bin(tile))
@@ -248,10 +247,9 @@ def RandomMove(player, num):
         return x, y
 
 def RandomAdjacentTileBot(player, num):
-    if player.MoveNumber != 0:
+    if adjacent_tiles:
         print("Adjacent tile move made (move number", player.MoveNumber, ")")
         x, y = adjacent_tiles.pop()
-        valid_tiles.remove((x, y))
         ApplyMechanics(player, x, y, num)
         IsAdjacentToSomethingCheck(x, y)
         return True, x, y
@@ -274,15 +272,17 @@ def display_grid():
       row_str = ""
       for tile in row:
           TileValue = get_value(tile)
-          if not is_valid(tile) and int(TileValue) != 0:
+          if not is_valid(tile) and int(TileValue) == 0:
               symbol = " X "
-          elif get_owner(tile) == none:
+          elif get_owner(tile) == none and TileValue == 0:
               symbol = " · "
+          elif get_owner(tile) == 0 and TileValue != 0:
+            print(f"⚠️ Unexpected: tile at ({x},{y}) has value {TileValue} but no owner?")
+            symbol = " ? "
           else:
-              tV = TileValue
-              if tV < 10:
-                  tV = str(0)+str(tV)
-              symbol = owner_symbols[get_owner(tile)]+str(tV)
+              if TileValue < 10:
+                  TileValue = str(0)+str(TileValue)
+              symbol = owner_symbols[get_owner(tile)]+str(TileValue)
           row_str += symbol + " "
       if count % 2 == 1:
           print(count, "  "+row_str)
