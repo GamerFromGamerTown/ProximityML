@@ -34,8 +34,9 @@ import math
 #sys.stdout = None  # Disable all printing if desired as a speed check
 
 # These control the player types:
+IsAdjacentUsed = True # The adjacency checks add a decent amount of overhead, but are critical for all bots, barring the RL-algorithm
 p1movetype = 1  # e.g., 1: random, 2: human, 3: RandomAdjacentTileBot, 4 is easy, 5 is medium, 6 is hard (greediest move)
-p2movetype = 1
+p2movetype = 2
 p3movetype = 1
 HoleRandomnessType = 1  # 0 for none, 1 for pure randomness, 2 for perlin (not yet implemented)
 PlayerCount = 2
@@ -73,7 +74,7 @@ OddRowOffsets  = [(-1, 0), (1, 0), (0, -1), (1, -1), (0, 1), (1, 1)]
 valid_tiles = set()  
 adjacent_tiles = OrderedSet()
 
-# 15: IsValid, 14-13: Owner, 13-8 = value, rest are reserved (maybe x, y?)
+# 15: IsValid, 14-13: Owner, 13-8 = value, 7 IsAdjacent, 6-3 x, 2-0 y (nice and snug)
 # ADD AN X, Y BIT !! very useful for AI
 def get_owner(tile):
     mask = 0b0110000000000000
@@ -97,6 +98,11 @@ def set_value(tile, value):
 def is_valid(tile):
   mask =  0b1000000000000000
   return tile & mask
+
+def is_adjcent(tile):
+  mask =  0b0000000010000000
+  return (tile & mask) >> 9
+
 
 if not RandomHoleOccurancePercentage >= 0 and not RandomHoleOccurancePercentage <= 1:
   RandomHoleOccurancePercentage = 10
@@ -162,7 +168,8 @@ def ApplyMechanics(player, x, y, num):
 
     
     player.SumOfRolls += num
-    IsAdjacentToSomethingCheck(x, y)
+    if IsAdjacentUsed == True:
+      IsAdjacentToSomethingCheck(x, y)
     for dx, dy in offsets:
         nx, ny = x + dx, y + dy
         if not (xMin <= nx < xMax and yMin <= ny < yMax):
@@ -249,7 +256,6 @@ def RandomAdjacentTileBot(player, num):
         print("Adjacent tile move made (move number", player.MoveNumber, ")")
         x, y = adjacent_tiles.pop()
         ApplyMechanics(player, x, y, num)
-        IsAdjacentToSomethingCheck(x, y)
         return True, x, y
     else:
         return RandomMove(player, num)
@@ -259,38 +265,43 @@ def display_grid():
   values = (grid & 0b0001111100000000) >> 8
   valids = (grid & 0b1000000000000000) > 0
 
-  count = -1
-  print("The scores are as follows:", 
-      str(Player1.name).capitalize()+":", Player1.score, 
-      str(Player2.name).capitalize()+":", Player2.score, 
-      str(Player3.name).capitalize()+":", Player3.score)
-  print("The current sum of rolls is", 
-      str(Player1.name).capitalize()+":", Player1.SumOfRolls, 
-      str(Player2.name).capitalize()+":", Player2.SumOfRolls, 
-      str(Player3.name).capitalize()+":", Player3.SumOfRolls)
+  print("The scores are as follows:",
+    str(Player1.name).capitalize() + ":", Player1.score,
+    str(Player2.name).capitalize() + ":", Player2.score,
+    str(Player3.name).capitalize() + ":", Player3.score)
+
+  print("The current sum of rolls is",
+    str(Player1.name).capitalize() + ":", Player1.SumOfRolls,
+    str(Player2.name).capitalize() + ":", Player2.SumOfRolls,
+    str(Player3.name).capitalize() + ":", Player3.SumOfRolls)
+
   print("   0   1   2   3   4   5   6   7   8   9")
-  for row in grid:
-      count += 1
-      row_str = ""
-      for tile in row:
-          TileValue = get_value(tile)
-          if not is_valid(tile) and int(TileValue) == 0:
-              symbol = " X "
-          elif get_owner(tile) == none and TileValue == 0:
-              symbol = " · "
-          elif get_owner(tile) == none and get_value(tile) != 0b00000:
-            print(f"⚠️ Unexpected: tile at ({x},{y}) has value {TileValue} but no owner?", get_owner(tile))
-            symbol = " ? "
-          else:
-              if TileValue < 10:
-                  TileValue = str(0)+str(TileValue)
-              symbol = owner_symbols[get_owner(tile)]+str(TileValue)
-          row_str += symbol + " "
-      if count % 2 == 1:
-          print(count, "  "+row_str)
+
+  for y in range(yMax):
+    row_str = ""
+    for x in range(xMax):
+      owner = owners[y][x]
+      value = values[y][x]
+      valid = valids[y][x]
+
+      if not valid and value == 0:
+        row_str += " X  "
+      elif owner == none and value == 0:
+        row_str += " ·  "
+      elif owner == none and value != 0:
+        print(f"⚠️ Unexpected: tile at ({x},{y}) has value {value} but no owner? Owner: {owner}")
+        row_str += " ? "
       else:
-          print(count, row_str)
+        symbol = owner_symbols[owner] + f"{value:02d}"
+        row_str += symbol + " "
+
+    if y % 2 == 1:
+      print(y, "  " + row_str)
+    else:
+      print(y, row_str)
+
   print("     0   1   2   3   4   5   6   7   8   9")
+
 
 def HumanMoveInput(player):
     while True:
@@ -329,7 +340,6 @@ def move(player, num, x, y):
         print("Tile already occupied! Critical Error!")
     valid_tiles.remove((x,y))
     ApplyMechanics(player, x, y, num)
-    IsAdjacentToSomethingCheck(x, y)
 
 def IsAdjacentToSomethingCheck(x, y):
     offsets = EvenRowOffsets if y % 2 == 0 else OddRowOffsets
@@ -366,7 +376,6 @@ def Play(player):
         exit()
     if player.MoveType == 1:
         x, y = RandomMove(player, player.NumBank[0])
-        IsAdjacentToSomethingCheck(x, y)
     elif player.MoveType == 2:
         x, y = HumanMoveInput(player)
         move(player, player.NumBank[0], x, y)
