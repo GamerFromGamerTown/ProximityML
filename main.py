@@ -103,6 +103,8 @@ def is_adjcent(tile):
   mask =  0b0000000010000000
   return (tile & mask) >> 9
 
+adj_mask = np.zeros((8,10), dtype=bool)
+
 
 if not RandomHoleOccurancePercentage >= 0 and not RandomHoleOccurancePercentage <= 1:
   RandomHoleOccurancePercentage = 10
@@ -152,10 +154,16 @@ def PlayerAssignment():
 PlayerAssignment()
 
 def ApplyMechanics(player, x, y, num):
-    offsets = EvenRowOffsets if y % 2 == 0 else OddRowOffsets
+    offsets = np.array(EvenRowOffsets if y % 2 == 0 else OddRowOffsets)  
+    neighbor_coords = np.array([x, y]) + offsets
+    ys, xs = neighbor_coords[:, 1], neighbor_coords[:, 0]
+    in_bounds = (xs >= 0) & (xs < xMax) & (ys >= 0) & (ys < yMax)
+    values = get_value(grid[ys, xs])
+    print(values)
     player.MoveNumber += 1
     if (x, y) in adjacent_tiles:
         adjacent_tiles.remove((x, y))
+        adj_mask[y][x] = False;
     if (x, y) in valid_tiles:
         valid_tiles.remove((x, y))
     # Update owner and value
@@ -350,6 +358,7 @@ def IsAdjacentToSomethingCheck(x, y):
         if get_owner(grid[ny][nx]) == none and not is_valid(grid[ny][nx]):
             if (nx, ny) not in adjacent_tiles:
                 adjacent_tiles.add((nx, ny))
+                adj_mask[y][x] = True
 
 def ScoreFromAbsorption(player, x, y):
     PossibleScore = 0
