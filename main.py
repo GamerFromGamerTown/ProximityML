@@ -95,6 +95,12 @@ def set_value(tile, value):
     cleared = tile & (~mask & 0xFFFF)
     return np.uint16(cleared | (value << 8))
 
+def set_valid(tile, YN):
+    mask = 0b1000000000000000
+    cleared = tile & (~mask & 0xFFFF)
+    bit = (0b1000000000000000 if YN else 0)
+    return np.uint16(cleared | bit)
+
 def is_valid(tile):
   mask =  0b1000000000000000
   return tile & mask
@@ -154,28 +160,59 @@ def PlayerAssignment():
 PlayerAssignment()
 
 def ApplyMechanics(player, x, y, num):
+    x, y, num = int(x), int(y), int(num)
     offsets = np.array(EvenRowOffsets if y % 2 == 0 else OddRowOffsets)  
+    
     neighbor_coords = np.array([x, y]) + offsets
     ys, xs = neighbor_coords[:, 1], neighbor_coords[:, 0]
     in_bounds = (xs >= 0) & (xs < xMax) & (ys >= 0) & (ys < yMax)
+    ys, xs = ys[in_bounds], xs[in_bounds]
+    
     values = get_value(grid[ys, xs])
-    print(values)
+    
+    if (x, y) in valid_tiles:
+        valid_tiles.remove(x,y)
+        
+    else:
+        print("Error! Tile not in valid_tiles.")
+    
+    
+    if adj_mask[y][x]:
+        adj_mask[y][x] = False;
+        if (x, y) in adjacent_tiles:
+            adjacent_tiles.remove((x, y))
+        else:
+            print("Warning! Tile in adj_mask, but not adjacent tiles.")
+    
+    owners = get_owner(grid[ys, xs])
+    is_ally = (player.name == owners)
+    is_enemy = ((player.name != owners) & (player.name != none))
+    is_weaker_tile = values > num
+    is_weaker_enemy = is_enemy & is_weaker_tile
+    
+    if is_ally: # fix this improper suntax
+        get_value( )
+
+
+    print(is_ally)
+    
+    player.MoveNumber += 1
+    player.score += num
+    player.SumOfRolls += num
+    
     player.MoveNumber += 1
     if (x, y) in adjacent_tiles:
         adjacent_tiles.remove((x, y))
         adj_mask[y][x] = False;
     if (x, y) in valid_tiles:
         valid_tiles.remove((x, y))
-    # Update owner and value
+        set_valid(tile, False)
+        
     grid[y][x] = set_owner(grid[y][x], player.name)
     grid[y][x] = set_value(grid[y][x], num)
 
-    # Update score based on new value
-    base_value = get_value(grid[y][x])
-    player.score += base_value
 
     
-    player.SumOfRolls += num
     if IsAdjacentUsed == True:
       IsAdjacentToSomethingCheck(x, y)
     for dx, dy in offsets:
@@ -189,7 +226,7 @@ def ApplyMechanics(player, x, y, num):
             NewValue = NeighborValue + 1
             grid[ny][nx] = set_value(neighbor, NewValue)
             player.score += 1
-        elif get_owner(neighbor) !=none and NeighborOwner != player.name and NeighborValue < base_value:
+        elif get_owner(neighbor) !=none and NeighborOwner != player.name and NeighborValue < num:
             # Adjust scores for the opponent whose tile is being absorbed.
             if NeighborOwner == Player1.name:
                 Player1.score -= NeighborValue
@@ -451,11 +488,9 @@ Checklist
 # region misc
 """
 other important things!
-save every 100th game or so
+save every 10th game or so
 optimise to hell before AI training! try to make state values binary 
-(e.g., instead of [[{'Owner': 'Blue', 'Value': 5, 'IsHole': False}, try 
-1100100
-(11 = blue, 10 = red, 01 = green, 00 = none; 5=00101; false = 0)
+
 
 maybe for some rules based ones
 
