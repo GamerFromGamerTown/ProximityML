@@ -36,12 +36,11 @@ import math
 # These control the player types:
 IsAdjacentUsed = True # The adjacency checks add a decent amount of overhead, but are critical for all bots, barring the RL-algorithm
 p1movetype = 1  # e.g., 1: random, 2: human, 3: RandomAdjacentTileBot, 4 is easy, 5 is medium, 6 is hard (greediest move)
-p2movetype = 2
+p2movetype = 1
 p3movetype = 1
 HoleRandomnessType = 1  # 0 for none, 1 for pure randomness, 2 for perlin (not yet implemented)
 PlayerCount = 2
-RandomHoleOccurancePercentage = 10
-RandomHoleOccurancePercentage = int(RandomHoleOccurancePercentage)
+RandomHoleOccurancePercentage = int(10)
 
 # Number banks (shuffled)
 NumBank1 = NumBank2 = NumBank3 = list(range(1, 21)) * 2
@@ -138,12 +137,12 @@ for y in range(yMax):
 class Player:
     def __init__(self, name):
         self.name = name  # this holds the bit mask value for the player (red, green, or blue)
-        self.score = 0
+        self.score = int(0)
         self.NumBank = list(range(1, RollMax+1)) * 2
         self.FirstTime = True
-        self.MoveType = 0
-        self.MoveNumber = 0
-        self.SumOfRolls = 0
+        self.MoveType = int(0)
+        self.MoveNumber = int(0)
+        self.SumOfRolls = int(0)
 
 def PlayerAssignment():
     # Randomly assign player colors for visualization.
@@ -160,7 +159,6 @@ def PlayerAssignment():
 PlayerAssignment()
 
 def ApplyMechanics(player, x, y, num):
-    x, y, num = int(x), int(y), int(num)
     offsets = np.array(EvenRowOffsets if y % 2 == 0 else OddRowOffsets)  
     
     neighbor_coords = np.array([x, y]) + offsets
@@ -169,73 +167,46 @@ def ApplyMechanics(player, x, y, num):
     ys, xs = ys[in_bounds], xs[in_bounds]
     
     values = get_value(grid[ys, xs])
-    
+    x, y, num = int(x), int(y), int(num)
     if (x, y) in valid_tiles:
-        valid_tiles.remove(x,y)
-        
+        valid_tiles.remove((x,y))        
     else:
-        print("Error! Tile not in valid_tiles.")
-    
+      print("Error! Tile not in valid_tiles.")
     
     if adj_mask[y][x]:
-        adj_mask[y][x] = False;
-        if (x, y) in adjacent_tiles:
-            adjacent_tiles.remove((x, y))
-        else:
-            print("Warning! Tile in adj_mask, but not adjacent tiles.")
+      adj_mask[y][x] = False;
+      if (x, y) in adjacent_tiles:
+        adjacent_tiles.remove((x, y))
+      else:
+        print("Warning! Tile in adj_mask, but not adjacent tiles.")
     
     owners = get_owner(grid[ys, xs])
     is_ally = (player.name == owners)
     is_enemy = ((player.name != owners) & (player.name != none))
     is_weaker_tile = values > num
     is_weaker_enemy = is_enemy & is_weaker_tile
-    
-    if is_ally: # fix this improper suntax
-        get_value( )
 
-
-    print(is_ally)
-    
-    player.MoveNumber += 1
-    player.score += num
-    player.SumOfRolls += num
-    
-    player.MoveNumber += 1
-    if (x, y) in adjacent_tiles:
-        adjacent_tiles.remove((x, y))
-        adj_mask[y][x] = False;
-    if (x, y) in valid_tiles:
-        valid_tiles.remove((x, y))
-        set_valid(tile, False)
-        
     grid[y][x] = set_owner(grid[y][x], player.name)
     grid[y][x] = set_value(grid[y][x], num)
 
+    if values[is_ally].size > 0: 
+      values[is_ally] += 1
+      tiles = grid[ys, xs].copy()
+      tiles[is_ally] = set_value(tiles[is_ally], values[is_ally])
+      grid[ys[is_ally], xs[is_ally]] = tiles[is_ally]
 
-    
-    if IsAdjacentUsed == True:
-      IsAdjacentToSomethingCheck(x, y)
-    for dx, dy in offsets:
-        nx, ny = x + dx, y + dy
-        if not (xMin <= nx < xMax and yMin <= ny < yMax):
-            continue
-        neighbor = grid[ny][nx]
-        NeighborOwner = get_owner(neighbor)
-        NeighborValue = int(get_value(neighbor))
-        if NeighborOwner == player.name and NeighborOwner == player.name:
-            NewValue = NeighborValue + 1
-            grid[ny][nx] = set_value(neighbor, NewValue)
-            player.score += 1
-        elif get_owner(neighbor) !=none and NeighborOwner != player.name and NeighborValue < num:
-            # Adjust scores for the opponent whose tile is being absorbed.
-            if NeighborOwner == Player1.name:
-                Player1.score -= NeighborValue
-            elif NeighborOwner == Player2.name:
-                Player2.score -= NeighborValue
-            elif NeighborOwner == Player3.name:
-                Player3.score -= NeighborValue
-            player.score += NeighborValue
-            grid[ny][nx] = set_owner(grid[ny][nx], player.name)
+    if values[is_weaker_enemy].size > 0:
+      player.score += int(np.sum(values[is_weaker_enemy]))
+      tiles = grid[ys, xs].copy()
+      tiles[is_weaker_enemy] = set_owner(tiles[is_weaker_enemy], player.name)
+      grid[ys[is_weaker_enemy], xs[is_weaker_enemy]] = tiles[is_weaker_enemy]
+      absorbed_owners = owners[is_weaker_enemy]
+      absorbed_values = values[is_weaker_enemy]
+      for p in [Player1, Player2, Player3]:
+        player_mask = (absorbed_owners == p.name)
+        if np.any(player_mask):
+          penalty = int(np.sum(absorbed_values[player_mask]).item())
+          p.score -= penalty
 
 def GreedyBot(player, greediness):
     scores = OrderedSet()
@@ -334,7 +305,7 @@ def display_grid():
       elif owner == none and value == 0:
         row_str += " ·  "
       elif owner == none and value != 0:
-        print(f"⚠️ Unexpected: tile at ({x},{y}) has value {value} but no owner? Owner: {owner}")
+        print(f"Warning: tile at ({x},{y}) has value {value} but no owner? Owner: {owner}")
         row_str += " ? "
       else:
         symbol = owner_symbols[owner] + f"{value:02d}"
@@ -351,13 +322,13 @@ def display_grid():
 def HumanMoveInput(player):
     while True:
         print("The scores are as follows:", 
-              str(Player1.name).capitalize()+":", Player1.score, 
-              str(Player2.name).capitalize()+":", Player2.score, 
-              str(Player3.name).capitalize()+":", Player3.score)
+            str(Player1.name).capitalize()+":", Player1.score, 
+            str(Player2.name).capitalize()+":", Player2.score, 
+            str(Player3.name).capitalize()+":", Player3.score)
         print("The current sum of rolls is", 
-              str(Player1.name).capitalize()+":", Player1.SumOfRolls, 
-              str(Player2.name).capitalize()+":", Player2.SumOfRolls, 
-              str(Player3.name).capitalize()+":", Player3.SumOfRolls)
+            str(Player1.name).capitalize()+":", Player1.SumOfRolls, 
+            str(Player2.name).capitalize()+":", Player2.SumOfRolls, 
+            str(Player3.name).capitalize()+":", Player3.SumOfRolls)
         display_grid()
         print("Your number is", player.NumBank[0], "and your color is", str(player.name)+".")
         move_input = input("What is your move? Structure it as X,Y : ")
@@ -368,9 +339,9 @@ def HumanMoveInput(player):
             inbounds = (xMin <= x < xMax and yMin <= y < yMax)
             if inbounds:
                 if get_owner(grid[y][x]) == none and is_valid(grid[y][x]):
-                    return x, y
+                  return x, y
                 else:
-                    print("Invalid input.")
+                  print("Invalid input.")
             else:
                 print("Out of bounds.")
 
