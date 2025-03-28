@@ -50,6 +50,8 @@ random.shuffle(NumBank1)
 random.shuffle(NumBank2)
 random.shuffle(NumBank3)
 
+
+
 # Define player “colors” using bit masks
 none, red, green, blue = 0b00, 0b01, 0b10, 0b11
 
@@ -114,19 +116,20 @@ adj_mask = np.zeros((8,10), dtype=bool)
 
 if not RandomHoleOccurancePercentage >= 0 and not RandomHoleOccurancePercentage <= 1:
   RandomHoleOccurancePercentage = 10
-
-if HoleRandomnessType == 0:
-    # This sets bit 15 (0b1000000000000000) indicating a valid tile.
-    grid = np.full((8, 10), 0b1000000000000000, dtype=np.uint16)
-elif HoleRandomnessType == 1:
-    grid = np.full((8, 10), 0b1000000000000000, dtype=np.uint16)
-    hole_mask = np.random.rand(8, 10) < RandomHoleOccurancePercentage/100
-    # Remove the valid bit from holes (bitwise AND with complement)
-    grid[hole_mask] = grid[hole_mask] & 0b0111111111111111  
-else:
-    print("Warning, HoleRandomnessType is poorly defined. Proceeding with no holes.")
-    grid = np.full((8, 10), 0b1000000000000000, dtype=np.uint16)
-
+  
+def HoleInitialisation():
+    if HoleRandomnessType == 0:
+        # This sets bit 15 (0b1000000000000000) indicating a valid tile.
+        grid = np.full((8, 10), 0b1000000000000000, dtype=np.uint16)
+    elif HoleRandomnessType == 1:
+        grid = np.full((8, 10), 0b1000000000000000, dtype=np.uint16)
+        hole_mask = np.random.rand(8, 10) < RandomHoleOccurancePercentage/100
+        # Remove the valid bit from holes (bitwise AND with complement)
+        grid[hole_mask] = grid[hole_mask] & 0b0111111111111111  
+    else:
+        print("Warning, HoleRandomnessType is poorly defined. Proceeding with no holes.")
+        grid = np.full((8, 10), 0b1000000000000000, dtype=np.uint16)
+HoleInitialisation()
 GlobalMoveNum = 0
 try: 
   MoveMax = (xMax * yMax) - hole_mask.sum
@@ -401,7 +404,7 @@ def Play(player):
         print("Whoops,", str(player.name)+"'s", "number bank ran out.")
         exit()
     if player.MoveType == 1:
-        x, y = RandomMove(player, player.NumBank[0])
+        RandomMove(player, player.NumBank[0])
     elif player.MoveType == 2:
         x, y = HumanMoveInput(player)
         move(player, player.NumBank[0], x, y)
