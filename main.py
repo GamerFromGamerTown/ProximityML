@@ -31,6 +31,7 @@ import random
 import re  # regex
 import sys
 import math 
+import time
 #sys.stdout = None  # Disable all printing if desired as a speed check
 
 # These control the player types:
@@ -41,6 +42,7 @@ p3movetype = 1
 HoleRandomnessType = 1  # 0 for none, 1 for pure randomness, 2 for perlin (not yet implemented)
 PlayerCount = 2
 RandomHoleOccurancePercentage = int(10)
+global GlobalMoveNum
 
 # Number banks (shuffled)
 NumBank1 = NumBank2 = NumBank3 = list(range(1, 21)) * 2
@@ -70,7 +72,6 @@ EvenRowOffsets = [(-1, 0), (1, 0), (-1, -1), (0, -1), (-1, 1), (0, 1)]
 OddRowOffsets  = [(-1, 0), (1, 0), (0, -1), (1, -1), (0, 1), (1, 1)]
 
 # Sets to track valid and adjacent tiles (using (x, y) tuples)
-valid_tiles = set()  
 adjacent_tiles = OrderedSet()
 
 # 15: IsValid, 14-13: Owner, 13-8 = value, 7 IsAdjacent, 6-3 x, 2-0 y (nice and snug)
@@ -126,10 +127,12 @@ else:
     print("Warning, HoleRandomnessType is poorly defined. Proceeding with no holes.")
     grid = np.full((8, 10), 0b1000000000000000, dtype=np.uint16)
 
-for y in range(yMax):
-    for x in range(xMax):
-        if grid[y][x] & 0b1000000000000000:  # if valid
-            valid_tiles.add((x, y))
+GlobalMoveNum = 0
+try: 
+  MoveMax = (xMax * yMax) - hole_mask.sum
+except:
+  MoveMax = xMax * yMax
+
 # endregion
 
 # region MainFunctions
@@ -159,6 +162,12 @@ def PlayerAssignment():
 PlayerAssignment()
 
 def ApplyMechanics(player, x, y, num):
+    global GlobalMoveNum
+    GlobalMoveNum += 1
+    if GlobalMoveNum > MoveMax:
+      print("GlobalMoveNumber is equal to or greater than MoveMax")
+      EndGame()
+      exit()
     offsets = np.array(EvenRowOffsets if y % 2 == 0 else OddRowOffsets)  
     
     neighbor_coords = np.array([x, y]) + offsets
@@ -168,10 +177,6 @@ def ApplyMechanics(player, x, y, num):
     
     values = get_value(grid[ys, xs])
     x, y, num = int(x), int(y), int(num)
-    if (x, y) in valid_tiles:
-        valid_tiles.remove((x,y))        
-    else:
-      print("Error! Tile not in valid_tiles.")
     
     if adj_mask[y][x]:
       adj_mask[y][x] = False;
@@ -188,9 +193,12 @@ def ApplyMechanics(player, x, y, num):
 
     grid[y][x] = set_owner(grid[y][x], player.name)
     grid[y][x] = set_value(grid[y][x], num)
+    grid[y][x] = set_valid(grid[y][x], False)
+    player.score += num
 
     if values[is_ally].size > 0: 
       values[is_ally] += 1
+      player.score += np.count_nonzero(is_ally)
       tiles = grid[ys, xs].copy()
       tiles[is_ally] = set_value(tiles[is_ally], values[is_ally])
       grid[ys[is_ally], xs[is_ally]] = tiles[is_ally]
@@ -262,10 +270,12 @@ def EndGame():
         display_grid()
 
 def RandomMove(player, num):
-    if valid_tiles:
-        x, y = valid_tiles.pop()
+    yx = np.argwhere(is_valid(grid)) 
+    if len(yx) != 0:
+        y, x = yx[np.random.randint(len(yx))]
         ApplyMechanics(player, x, y, num)
         return x, y
+    
 
 def RandomAdjacentTileBot(player, num):
     if adjacent_tiles:
@@ -348,13 +358,12 @@ def HumanMoveInput(player):
 def move(player, num, x, y):
     if player is None or num is None or x is None or y is None:
         print("Warning: Parameter unset!")
-    if not valid_tiles:
-        print("Invalid choice! Critical Error!")
+    if GlobalMoveNum >= MoveMax:
+        print("MoveNum > MoveMax! Critical Error!")
     if not (0 <= x < xMax and 0 <= y < yMax):
         print("Out of bounds! Critical Error!")
     if get_owner(grid[y][x]) !=none:
         print("Tile already occupied! Critical Error!")
-    valid_tiles.remove((x,y))
     ApplyMechanics(player, x, y, num)
 
 def IsAdjacentToSomethingCheck(x, y):
@@ -409,7 +418,7 @@ def Play(player):
     del player.NumBank[0]
 
 def ValidTilesCheck():
-    if not valid_tiles:
+    if GlobalMoveNum >= MoveMax:
         display_grid()
         return True
     return False
@@ -417,7 +426,7 @@ def ValidTilesCheck():
 
 # region MainLoop
 while True:
-    if not valid_tiles:
+    if GlobalMoveNum >= MoveMax:
         display_grid()
         break
     Play(Player1)
