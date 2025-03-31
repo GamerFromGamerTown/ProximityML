@@ -1,4 +1,4 @@
-    """
+"""
     Hey! This is my first Python project! I'm really learning as I go along, and a GPT really helps
     explain a bunch of concepts--don't worry, it's not writing it for me!
     I'm going to try to train a deep learning agent play a game inspired by "Proximity" of Brian Cable. (i think it's brian cable, at least)
