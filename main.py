@@ -31,8 +31,9 @@ import re  # regex
 import sys
 import math 
 import time
+import copy
+
 # import mcts # maybe
-#sys.stdout = None  # Disable all printing if desired as a speed check
 
 # These control the player types:
 IsAdjacentUsed = True # The adjacency checks add a decent amount of overhead, but are critical for all bots, barring the RL-algorithm
@@ -199,9 +200,9 @@ def ApplyMechanics(player, x, y, num, g=grid):
         g[y][x] = set_valid(g[y][x], False)
     else:
         print("Critical Error! Chose an invalid tile!!!!!")
-
-    global GlobalMoveNum
-    GlobalMoveNum += 1
+    if g == grid:
+        global GlobalMoveNum
+        GlobalMoveNum += 1
     if GlobalMoveNum > MoveMax:
       print("GlobalMoveNumber is equal to or greater than MoveMax")
       EndGame()
@@ -254,33 +255,45 @@ def ApplyMechanics(player, x, y, num, g=grid):
           p.score -= penalty
 
 
-def GameTest():
-    while True:
-        LocalMoveNum = GlobalMoveNum
-        if GlobalMoveNum >= MoveMax:
-            break
-        Play(Player1)
-        if ValidTilesCheck():
-            break
-        Play(Player2)
-        if ValidTilesCheck():
-            break
-        if PlayerCount == 3:
-            if ValidTilesCheck():
+def GameTest(player1, player2, player3=None, stochastity=0.1, g=None, simnum=10):
+    winners = []
+    LocalMoveNum = GlobalMoveNum
+    for _ in range(int(simnum)):
+        root = np.copy(g)
+        p1 = copy.deepcopy(player1)
+        p2 = copy.deepcopy(player2)
+        p3 = copy.deepcopy(player3) if player3 else None
+        while True:
+            LocalMoveNum += 1
+            if LocalMoveNum >= MoveMax:
                 break
-            Play(Player3)
+            GreedyBot(p1, 1, stochastity, root)
+            LocalMoveNum += 1
+            if GameIsOver(HideGrid):
+                break
+            GreedyBot(p2, 1, stochastity, root)
+            if GameIsOver(HideGrid):
+                break
+            if PlayerCount == 3:
+                LocalMoveNum += 1
+                if GameIsOver(HideGrid):
+                    break
+                GreedyBot(p3, 1, stochastity, root)
+        winner = GetWinner(p1, p2, p3)
+        winners.append(winner)
+    return winners
 
 def MCTSsearch(player, stochastity):
     pass
         
 def MCTSbot(player, time):
-    Root = grid
+    root = deep.copy(grid)
     pass
 
 """
 YOU CAN VECTORISE GREEDY BOT! especially stochastity, you can probably make a really long list of random numbers using np and count through it
 """
-def GreedyBot(player, greediness, stochastity=0): 
+def GreedyBot(player, greediness, stochastity=0, g=grid): 
     if stochastity != 0 and stochastity > random.randint(1, 100):
         RandomMove(player, player.NumBank[0])
     else:
@@ -305,28 +318,28 @@ def GreedyBot(player, greediness, stochastity=0):
           print("Warning, GreedyBot played a random move!")
           RandomMove(player, player.NumBank[0])
 
-def RandomMove(player, num):
+def RandomMove(player, num, g=grid):
     yx = np.argwhere(is_valid(grid)) 
     if len(yx) != 0:
         y, x = yx[np.random.randint(len(yx))]
         ApplyMechanics(player, x, y, num)
         return x, y
     
-def RandomAdjacentTileBot(player, num):
+def RandomAdjacentTileBot(player, num, g=grid):
     if adjacent_tiles:
         print("Adjacent tile move made (move number", player.MoveNumber, ")")
         x, y = adjacent_tiles.pop()
-        ApplyMechanics(player, x, y, num)
+        ApplyMechanics(player, x, y, num, g)
         return True, x, y
     else:
         return RandomMove(player, num)
 
-def EndGame(p=Player):
-    print(Player1.name, Player1.score, Player2.name, Player2.score, Player3.name, Player3.score)
+def EndGame(p1=Player1, p2=Player2, p3=Player3, pnt):
+    print(p1.name, p1.score, Player2.name, Player2.score, Player3.name, Player3.score)
     winner = Winner("")
-    winner.score = max(Player1.score, Player2.score, Player3.score)
-    if Player1.score == winner.score:
-        winner.name.append(Player1.name)
+    winner.score = max(p1.score, Player2.score, Player3.score)
+    if p1.score == winner.score:
+        winner.name.append(p1.name)
         winner.player.append("Player1")
     if Player2.score == winner.score:
         winner.name.append(Player2.name)
@@ -442,7 +455,7 @@ def move(player, num, x, y, g=grid):
         print("Tile already occupied! Critical Error!")
     ApplyMechanics(player, x, y, num)
 
-def Play(player):
+def Play(player, g=grid):
     if player.FirstTime:
         random.shuffle(player.NumBank)
         player.FirstTime = False 
@@ -467,9 +480,10 @@ def Play(player):
         print("Hey, movetype is poorly defined. Warning!")
     del player.NumBank[0]
 
-def ValidTilesCheck():
-    if GlobalMoveNum >= MoveMax:
-        display_grid()
+def GameIsOver(gridshown=True, movenum=GlobalMoveNum):
+    if movenum >= MoveMax:
+        if gridshown == True:
+            display_grid()
         return True
     return False
 
@@ -483,13 +497,13 @@ while True:
         display_grid()
         break
     Play(Player1)
-    if ValidTilesCheck():
+    if GameIsOver():
         break
     Play(Player2)
-    if ValidTilesCheck():
+    if GameIsOver():
         break
     if PlayerCount == 3:
-        if ValidTilesCheck():
+        if GameIsOver():
             break
         Play(Player3)
   
