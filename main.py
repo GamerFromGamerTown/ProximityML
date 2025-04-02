@@ -200,12 +200,12 @@ def ApplyMechanics(player, x, y, num, g=grid):
         g[y][x] = set_valid(g[y][x], False)
     else:
         print("Critical Error! Chose an invalid tile!!!!!")
-    if g == grid:
+    if "grid" == str(g):
         global GlobalMoveNum
         GlobalMoveNum += 1
     if GlobalMoveNum > MoveMax:
       print("GlobalMoveNumber is equal to or greater than MoveMax")
-      EndGame()
+      GetWinner()
       exit()
     offsets = np.array(EvenRowOffsets if y % 2 == 0 else OddRowOffsets)  
     
@@ -254,8 +254,15 @@ def ApplyMechanics(player, x, y, num, g=grid):
           penalty = int(np.sum(absorbed_values[player_mask]).item())
           p.score -= penalty
 
+def ucb1_tuned(average, NumOfVisitsForI, NumOfVisitsForParent, variance):
+    exploration_term = math.sqrt((math.log(NumOfVisitsForParent) / NumOfVisitsForI) * min(0.25, variance + math.sqrt((2 * math.log(NumOfVisitsForParent)) / NumOfVisitsForI)))
+    # this is a complex formula (UCB1-Tuned)! for an explanation, see https://en.wikipedia.org/wiki/Monte_Carlo_tree_search#Exploration_and_exploitation for something similar--the only difference is that this is tuned for how "risky" a move is
+    return average + exploration_term
 
-def GameTest(player1, player2, player3=None, stochastity=0.1, g=None, simnum=10):
+def EvalFromMoveList(list):
+    win_count
+
+def GameTest(player1, player2, player3=None, stochastity=0.1, g=None, simnum=50):
     winners = []
     LocalMoveNum = GlobalMoveNum
     for _ in range(int(simnum)):
@@ -268,7 +275,7 @@ def GameTest(player1, player2, player3=None, stochastity=0.1, g=None, simnum=10)
             if LocalMoveNum >= MoveMax:
                 break
             GreedyBot(p1, 1, stochastity, root)
-            LocalMoveNum += 1
+            LocalMoveNum += 1 
             if GameIsOver(HideGrid):
                 break
             GreedyBot(p2, 1, stochastity, root)
@@ -277,10 +284,12 @@ def GameTest(player1, player2, player3=None, stochastity=0.1, g=None, simnum=10)
             if PlayerCount == 3:
                 LocalMoveNum += 1
                 if GameIsOver(HideGrid):
-                    break
+                    break   
                 GreedyBot(p3, 1, stochastity, root)
-        winner = GetWinner(p1, p2, p3)
+        winner = GetWinner(p1, p2, p3, True)
         winners.append(winner)
+    
+    
     return winners
 
 def MCTSsearch(player, stochastity):
@@ -334,27 +343,29 @@ def RandomAdjacentTileBot(player, num, g=grid):
     else:
         return RandomMove(player, num)
 
-def EndGame(p1=Player1, p2=Player2, p3=Player3, pnt):
-    print(p1.name, p1.score, Player2.name, Player2.score, Player3.name, Player3.score)
+def GetWinner(p1=Player1, p2=Player2, p3=Player3):
+    print(p1.name, p1.score, p2.name, p2.score, Player3.name, Player3.score)
     winner = Winner("")
-    winner.score = max(p1.score, Player2.score, Player3.score)
+    winner.score = max(p1.score, p2.score, p3.score)
     if p1.score == winner.score:
         winner.name.append(p1.name)
         winner.player.append("Player1")
-    if Player2.score == winner.score:
-        winner.name.append(Player2.name)
+    if p2.score == winner.score:
+        winner.name.append(p2.name)
         winner.player.append("Player2")
-    if Player3.score == winner.score:
-        winner.name.append(Player3.name)
+    if p3.score == winner.score:
+        winner.name.append(p3.name)
         winner.player.append("Player3")
     
     if len(winner.name) == 1:
         print("The winner of the game is", str(winner.player[0]), "("+str(winner.name[0])+")")
+        return winner.name
     elif len(winner.name) == 2:
         print("Two-way tie! The winners are", str(winner.player), "and their colors are", str(winner.name))
+        return 00
     elif len(winner.name) == 3:
         print("Three-way tie!! The winners are", str(winner.player), "and their colors are", str(winner.name))
-        display_grid()
+        return 00
 
 def display_grid():
   owners = (grid & 0b0110000000000000) >> 13
@@ -507,7 +518,7 @@ while True:
             break
         Play(Player3)
   
-EndGame()
+GetWinner()
 # endregion
 # region Checklist 
 
