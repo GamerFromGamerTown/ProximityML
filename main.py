@@ -189,7 +189,7 @@ def PlayerAssignment():
 
 PlayerAssignment()
 
-def ApplyMechanics(player, x, y, num, g=grid):
+def ApplyMechanics(player, x, y, num, g=grid, numbank=player.numbank):
     IsAdjacentToSomethingCheck(x, y)
     g[y][x] = set_adjacent(g[y][x], False)
     adj_mask[y][x] = False   
@@ -253,6 +253,8 @@ def ApplyMechanics(player, x, y, num, g=grid):
         if np.any(player_mask):
           penalty = int(np.sum(absorbed_values[player_mask]).item())
           p.score -= penalty
+    if type(numbank) == list:
+        del numbank[0]
 
 # def ucb1_tuned(average, NumOfVisitsForI, NumOfVisitsForParent, variance):
 #     exploration_term = math.sqrt((math.log(NumOfVisitsForParent) / NumOfVisitsForI) * min(0.25, variance + math.sqrt((2 * math.log(NumOfVisitsForParent)) / NumOfVisitsForI)))
@@ -279,11 +281,12 @@ def GameTest(player, player1, player2, stochastity=0.1, g=None, simnum=50, playe
         p1 = copy.deepcopy(player1)
         p2 = copy.deepcopy(player2)
         p3 = copy.deepcopy(player3) if player3 else None
+        newnumbank = player.NumBank.shuffle()
         while True:
             LocalMoveNum += 1
             if LocalMoveNum >= MoveMax:
                 break
-            GreedyBot(p1, 1, stochastity, root) # This starts the loop at player 1, but with simulations, this isn't always necessarily the case. Fix pls :3
+            GreedyBot(p1, 1, stochastity, root, newnumbank[0]) # This starts the loop at player 1, but with simulations, this isn't always necessarily the case. Fix pls :3
             print("aaa i'm being noisy fix me")
             LocalMoveNum += 1 
             if GameIsOver(HideGrid):
@@ -301,12 +304,12 @@ def GameTest(player, player1, player2, stochastity=0.1, g=None, simnum=50, playe
     MoveGoodness = EvalFromMoveList(winners, player)
     return MoveGoodness
 
-def MCTSsearch(player, stochastity=0.1, grid=grid, simnum=50):
+def MonteCarlosSearch(player, stochastity=0.1, grid=grid, simnum=50, num = player.NumBank[0]):
     move_list = [(x, y, MoveGoodness)]
     neighbors = np.argwhere(adj_mask)  # Each element is [y, x]
     for coord in neighbors:
         y, x = coord
-        move(player, player.NumBank[0], x, y, grid)
+        move(player, num, x, y, grid)
         MoveGoodness = GameTest(player, player1, player2, stochastity, grid)
         move_list.append((x, y, MoveGoodness))
     best_move = max(moves, key=lambda move: move[2])
@@ -314,22 +317,22 @@ def MCTSsearch(player, stochastity=0.1, grid=grid, simnum=50):
             
 def MCTSbot(player, stochastity=0.1, simnum=50):
     root = deep.copy(grid)
-    best_move = MCTSsearch(player, stochastity, root, simnum)
+    best_move = MonteCarlosSearch(player, stochastity, root, simnum)
     move(player, player.NumBank[0], best_move[0], best_move[1], grid)
 
 """
 YOU CAN VECTORISE GREEDY BOT! especially stochastity, you can probably make a really long list of random numbers using np and count through it
 """
-def GreedyBot(player, greediness, stochastity=0, g=grid): 
+def GreedyBot(player, greediness, stochastity=0, g=grid, num=player.NumBank[0]): 
     if stochastity != 0 and stochastity > random.randint(1, 100):
-        RandomMove(player, player.NumBank[0])
+        RandomMove(player, num)
     else:
       scores = OrderedSet()
       try:
         greediness = int(greediness)
       except ValueError:
         print("Warning, GreedyBot played a random move! Greediness not defined properly.")
-        RandomMove(player, player.NumBank[0])
+        RandomMove(player, num)
         return
       if greediness > len(adjacent_tiles):
         greediness = len(adjacent_tiles)
@@ -340,10 +343,10 @@ def GreedyBot(player, greediness, stochastity=0, g=grid):
           top_moves = sorted(scores, key=lambda item: item[1], reverse=True)[:greediness]
           best_move = random.choice(top_moves)
           (x, y), _ = best_move
-          ApplyMechanics(player, x, y, player.NumBank[0])
+          ApplyMechanics(player, x, y, num)
       else:
           print("Warning, GreedyBot played a random move!")
-          RandomMove(player, player.NumBank[0])
+          RandomMove(player, num)
 
 def RandomMove(player, num, g=grid):
     yx = np.argwhere(is_valid(grid)) 
@@ -553,7 +556,7 @@ Checklist
 9) get "holes" working [✓]
 10) get some basic rules-based bots to play against [✓] 
 11) optimise, esp. state values and excessive loops [✓] # a lot harder than i thought; note you can probably do more, i did the 80/20
-12) implement MCTS bots to encourage deeper thinking [-] # try greedy rollouts and random rollouts
+12) implement MCTS bots to encourage deeper thinking [X] # try greedy rollouts and random rollouts
 13) plug this into something like pytorch--first random, then easy, medium, hard, MCTS easy, hard, and then self-play [X]
 (note, MCTS might be impossible due to state-space explosion, at least on my hardware--minmax )
 14) elo system? [X]
