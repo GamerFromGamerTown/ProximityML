@@ -254,15 +254,24 @@ def ApplyMechanics(player, x, y, num, g=grid):
           penalty = int(np.sum(absorbed_values[player_mask]).item())
           p.score -= penalty
 
-def ucb1_tuned(average, NumOfVisitsForI, NumOfVisitsForParent, variance):
-    exploration_term = math.sqrt((math.log(NumOfVisitsForParent) / NumOfVisitsForI) * min(0.25, variance + math.sqrt((2 * math.log(NumOfVisitsForParent)) / NumOfVisitsForI)))
-    # this is a complex formula (UCB1-Tuned)! for an explanation, see https://en.wikipedia.org/wiki/Monte_Carlo_tree_search#Exploration_and_exploitation for something similar--the only difference is that this is tuned for how "risky" a move is
-    return average + exploration_term
+# def ucb1_tuned(average, NumOfVisitsForI, NumOfVisitsForParent, variance):
+#     exploration_term = math.sqrt((math.log(NumOfVisitsForParent) / NumOfVisitsForI) * min(0.25, variance + math.sqrt((2 * math.log(NumOfVisitsForParent)) / NumOfVisitsForI)))
+#     # this is a complex formula (UCB1-Tuned)! for an explanation, see https://en.wikipedia.org/wiki/Monte_Carlo_tree_search#Exploration_and_exploitation for something similar--the only difference is that this is tuned for how "risky" a move is
+#     return average + exploration_term
 
-def EvalFromMoveList(list):
-    win_count
 
-def GameTest(player1, player2, player3=None, stochastity=0.1, g=None, simnum=50):
+
+def EvalFromMoveList(move_list, player): # vectorise this ! it's fast, but not numpy fast
+    winningnum = 0
+    losingnum = 0
+    for p in move_list:
+        if move_list[p] == player:
+          winningnum += 1
+    winningratio = winningnum / len(move_list)
+    return winningratio
+
+
+def GameTest(player, player1, player2, stochastity=0.1, g=None, simnum=50, player3=None): 
     winners = []
     LocalMoveNum = GlobalMoveNum
     for _ in range(int(simnum)):
@@ -274,7 +283,8 @@ def GameTest(player1, player2, player3=None, stochastity=0.1, g=None, simnum=50)
             LocalMoveNum += 1
             if LocalMoveNum >= MoveMax:
                 break
-            GreedyBot(p1, 1, stochastity, root)
+            GreedyBot(p1, 1, stochastity, root) # This starts the loop at player 1, but with simulations, this isn't always necessarily the case. Fix pls :3
+            print("aaa i'm being noisy fix me")
             LocalMoveNum += 1 
             if GameIsOver(HideGrid):
                 break
@@ -288,16 +298,24 @@ def GameTest(player1, player2, player3=None, stochastity=0.1, g=None, simnum=50)
                 GreedyBot(p3, 1, stochastity, root)
         winner = GetWinner(p1, p2, p3, True)
         winners.append(winner)
-    
-    
-    return winners
+    MoveGoodness = EvalFromMoveList(winners, player)
+    return MoveGoodness
 
-def MCTSsearch(player, stochastity):
-    pass
-        
-def MCTSbot(player, time):
+def MCTSsearch(player, stochastity=0.1, grid=grid, simnum=50):
+    move_list = [(x, y, MoveGoodness)]
+    neighbors = np.argwhere(adj_mask)  # Each element is [y, x]
+    for coord in neighbors:
+        y, x = coord
+        move(player, player.NumBank[0], x, y, grid)
+        MoveGoodness = GameTest(player, player1, player2, stochastity, grid)
+        move_list.append((x, y, MoveGoodness))
+    best_move = max(moves, key=lambda move: move[2])
+    return best_move
+            
+def MCTSbot(player, stochastity=0.1, simnum=50):
     root = deep.copy(grid)
-    pass
+    best_move = MCTSsearch(player, stochastity, root, simnum)
+    move(player, player.NumBank[0], best_move[0], best_move[1], grid)
 
 """
 YOU CAN VECTORISE GREEDY BOT! especially stochastity, you can probably make a really long list of random numbers using np and count through it
@@ -535,7 +553,7 @@ Checklist
 9) get "holes" working [✓]
 10) get some basic rules-based bots to play against [✓] 
 11) optimise, esp. state values and excessive loops [✓] # a lot harder than i thought; note you can probably do more, i did the 80/20
-12) implement MCTS bots to encourage deeper thinking [X] # try greedy rollouts and random rollouts
+12) implement MCTS bots to encourage deeper thinking [-] # try greedy rollouts and random rollouts
 13) plug this into something like pytorch--first random, then easy, medium, hard, MCTS easy, hard, and then self-play [X]
 (note, MCTS might be impossible due to state-space explosion, at least on my hardware--minmax )
 14) elo system? [X]
