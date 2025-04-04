@@ -27,7 +27,6 @@ Best,
 import numpy as np 
 from ordered_set import OrderedSet
 import random
-import re  # regex
 import sys
 import math 
 import time
@@ -37,21 +36,16 @@ import copy
 
 # These control the player types:
 IsAdjacentUsed = True # The adjacency checks add a decent amount of overhead, but are critical for all bots, barring the RL-algorithm
-p1movetype = 2  # e.g., 1: random, 2: human, 3: RandomAdjacentTileBot, 4 is easy, 5 is medium, 6 is hard (greediest move)
-p2movetype = 6
+p1movetype = 1  # e.g., 1: random, 2: human, 3: RandomAdjacentTileBot, 4 is easy, 5 is medium, 6 is hard (greediest move), 7 is MCTS
+p2movetype = 1
 p3movetype = 6
 HoleRandomnessType = 1  # 0 for none, 1 for pure randomness, 2 for perlin (not yet implemented)
 PlayerCount = 2
-RandomHoleOccurancePercentage = int(10)
+RandomHoleOccurancePercentage = 10
 global GlobalMoveNum
 
-# Number banks (shuffled)
-NumBank1 = NumBank2 = NumBank3 = list(range(1, 21)) * 2
-random.shuffle(NumBank1)
-random.shuffle(NumBank2)
-random.shuffle(NumBank3)
-
-
+if p1movetype == 2 or p2movetype == 2 or p3movetype == 2:
+    import re  # regex
 
 # Define player “colors” using bit masks
 none, red, green, blue = 0b00, 0b01, 0b10, 0b11
@@ -69,6 +63,13 @@ owner_symbols = {
     2: "G",  # green
     3: "B"   # blue
 }
+
+
+# Number banks (shuffled)
+NumBank1 = NumBank2 = NumBank3 = list(range(1, RollMax+1)) * 2
+random.shuffle(NumBank1)
+random.shuffle(NumBank2)
+random.shuffle(NumBank3)
 
 # Hexagonal neighbour offsets (depending on row parity)
 EvenRowOffsets = [(-1, 0), (1, 0), (-1, -1), (0, -1), (-1, 1), (0, 1)]
@@ -189,7 +190,9 @@ def PlayerAssignment():
 
 PlayerAssignment()
 
-def ApplyMechanics(player, x, y, num, g=grid, numbank=player.numbank):
+def ApplyMechanics(player, x, y, num, g=grid, NumBank=None):
+    if NumBank == None:
+        NumBank == player.NumBank
     IsAdjacentToSomethingCheck(x, y)
     g[y][x] = set_adjacent(g[y][x], False)
     adj_mask[y][x] = False   
@@ -253,8 +256,11 @@ def ApplyMechanics(player, x, y, num, g=grid, numbank=player.numbank):
         if np.any(player_mask):
           penalty = int(np.sum(absorbed_values[player_mask]).item())
           p.score -= penalty
-    if type(numbank) == list:
-        del numbank[0]
+    if type(NumBank) == list:
+        if len(NumBank) > 0:
+            del NumBank[0]
+        else:
+            print("Error! NumBank's length is below 1.", "("+str(len(NumBank))+")")
 
 # def ucb1_tuned(average, NumOfVisitsForI, NumOfVisitsForParent, variance):
 #     exploration_term = math.sqrt((math.log(NumOfVisitsForParent) / NumOfVisitsForI) * min(0.25, variance + math.sqrt((2 * math.log(NumOfVisitsForParent)) / NumOfVisitsForI)))
@@ -263,12 +269,12 @@ def ApplyMechanics(player, x, y, num, g=grid, numbank=player.numbank):
 
 
 
-def EvalFromMoveList(move_list, player): # vectorise this ! it's fast, but not numpy fast
+def EvalFromMoveList(move_list, player): # this is a basic formula ! try to upgrade it to something fancier (like an upper bound of confidence)
     winningnum = 0
     losingnum = 0
-    for p in move_list:
-        if move_list[p] == player:
-          winningnum += 1
+    for move in move_list:
+        if move == player:
+            winningnum += 1
     winningratio = winningnum / len(move_list)
     return winningratio
 
@@ -280,50 +286,67 @@ def GameTest(player, player1, player2, stochastity=0.1, g=None, simnum=50, playe
         root = np.copy(g)
         p1 = copy.deepcopy(player1)
         p2 = copy.deepcopy(player2)
-        p3 = copy.deepcopy(player3) if player3 else None
-        newnumbank = player.NumBank.shuffle()
-        while True:
+        p1tempnumbank = player1.NumBank.copy()
+        p2tempnumbank = player2.NumBank.copy()
+        random.shuffle(p1tempnumbank)
+        random.shuffle(p2tempnumbank)
+    
+        if player3 != None:
+            p3tempnumbank = player3.NumBank.copy()
+            random.shuffle(p3tempnumbank)
+            p3 = copy.deepcopy(player3)
+        for num in p1tempnumbank:
             LocalMoveNum += 1
+            p1num, p2num, p3num = p1tempnumbank[0], p2tempnumbank[0], p3tempnumbank[0] if player3 else none
             if LocalMoveNum >= MoveMax:
                 break
-            GreedyBot(p1, 1, stochastity, root, newnumbank[0]) # This starts the loop at player 1, but with simulations, this isn't always necessarily the case. Fix pls :3
+            GreedyBot(p1, 1, stochastity, root, p1tempnumbank[0]) # This starts the loop at player 1, but with simulations, this isn't always necessarily the case. Fix pls :3
             print("aaa i'm being noisy fix me")
             LocalMoveNum += 1 
-            if GameIsOver(HideGrid):
+            if GameIsOver(False):
                 break
             GreedyBot(p2, 1, stochastity, root)
-            if GameIsOver(HideGrid):
+            if GameIsOver(False):
                 break
             if PlayerCount == 3:
                 LocalMoveNum += 1
-                if GameIsOver(HideGrid):
+                if GameIsOver(False):
                     break   
                 GreedyBot(p3, 1, stochastity, root)
-        winner = GetWinner(p1, p2, p3, True)
+        winner = GetWinner(p1, p2, None)
         winners.append(winner)
     MoveGoodness = EvalFromMoveList(winners, player)
     return MoveGoodness
 
-def MonteCarlosSearch(player, stochastity=0.1, grid=grid, simnum=50, num = player.NumBank[0]):
-    move_list = [(x, y, MoveGoodness)]
+def MonteCarlosSearch(player, player1, player2, stochastity=0.1, grid=grid, simnum=50, num = None):
+    if num == None:
+        num = player.NumBank[0]
+    move_list = [] 
     neighbors = np.argwhere(adj_mask)  # Each element is [y, x]
+    if len(neighbors) == 0:
+        neighbors = np.argwhere(is_valid(grid))
     for coord in neighbors:
+        grid_copy = np.copy(grid)
         y, x = coord
-        move(player, num, x, y, grid)
+        move(player, num, x, y, grid_copy)
         MoveGoodness = GameTest(player, player1, player2, stochastity, grid)
         move_list.append((x, y, MoveGoodness))
-    best_move = max(moves, key=lambda move: move[2])
+    print("before i error out, here's the adj_mask", np.argwhere(adj_mask)) #debug
+    best_move = max(move_list, key=lambda move: move[2])
+    print("I, the humble MCTS bot, playing as", str(player.name)+",", "with number", str(num)+",", "chose my move to be", "("+str(best_move[0])+", "+str(best_move[1])+")", "out of", len(move_list), "options.") # debug
     return best_move
             
-def MCTSbot(player, stochastity=0.1, simnum=50):
-    root = deep.copy(grid)
-    best_move = MonteCarlosSearch(player, stochastity, root, simnum)
-    move(player, player.NumBank[0], best_move[0], best_move[1], grid)
+def MCTSbot(player, player1, player2, stochastity=0.1, simnum=50):
+    root = copy.deepcopy(grid)
+    best_move = MonteCarlosSearch(player, player1, player2, stochastity, root, simnum)
+    move(player, player.NumBank[0], best_move[0], best_move[1], root)
 
 """
 YOU CAN VECTORISE GREEDY BOT! especially stochastity, you can probably make a really long list of random numbers using np and count through it
 """
-def GreedyBot(player, greediness, stochastity=0, g=grid, num=player.NumBank[0]): 
+def GreedyBot(player, greediness, stochastity=0, g=grid, num=None): 
+    if num == None:
+        num = player.NumBank[0]
     if stochastity != 0 and stochastity > random.randint(1, 100):
         RandomMove(player, num)
     else:
@@ -365,6 +388,8 @@ def RandomAdjacentTileBot(player, num, g=grid):
         return RandomMove(player, num)
 
 def GetWinner(p1=Player1, p2=Player2, p3=Player3):
+    if p3 == None:
+        p3 = Player3
     print(p1.name, p1.score, p2.name, p2.score, Player3.name, Player3.score)
     winner = Winner("")
     winner.score = max(p1.score, p2.score, p3.score)
@@ -508,8 +533,11 @@ def Play(player, g=grid):
         GreedyBot(player, 3)
     elif player.MoveType == 6:
         GreedyBot(player, 1)
+    elif player.MoveType == 7:
+        MCTSbot(player, Player1, Player2)
     else:
-        print("Hey, movetype is poorly defined. Warning!")
+        print("FATAL ERROR. Movetype is poorly defined.")
+        exit()
     del player.NumBank[0]
 
 def GameIsOver(gridshown=True, movenum=GlobalMoveNum):
@@ -547,41 +575,46 @@ GetWinner()
 Checklist
 1) get a grid of tiles [✓]
 2) manually place some hexagons [✓]
-3) get turns working [✓] YAY
+3) get turns working [✓] 
 4) determine which tiles touch which [✓]
-5) get a representation of the grid (text-based first, hopefully graphical later) [✓]
-6) implement logic (absorbing adjacent enemies, reinforcing allies) [✓] HELL YEAH
+5) get a representation of the grid (text-based) [✓]
+6) implement logic (absorbing adjacent enemies, reinforcing allies) [✓] 
 7) determine score on-the-go, without relying on checking every score in the loop [✓]
 8) determine winner at the end [✓]
 9) get "holes" working [✓]
 10) get some basic rules-based bots to play against [✓] 
-11) optimise, esp. state values and excessive loops [✓] # a lot harder than i thought; note you can probably do more, i did the 80/20
-12) implement MCTS bots to encourage deeper thinking [X] # try greedy rollouts and random rollouts
-13) plug this into something like pytorch--first random, then easy, medium, hard, MCTS easy, hard, and then self-play [X]
-(note, MCTS might be impossible due to state-space explosion, at least on my hardware--minmax )
-14) elo system? [X]
+11) optimise, esp. state values and excessive loops [✓] # a lot harder than i thought; note one can probably do more, but i didn't do the 80/20
+12) implement MCTS bots to encourage deeper thinking [-] # try greedy rollouts and random rollouts
+13) get a reinforcement learning agent to learn this game, with the help of MCTS at later stages [X]
+(note, MCTS might be impossible due to state-space explosion, at least on my hardware--minmax)
+14) graphical implementation [X]
+15) elo system? [X]
 """
 # endregion
 # region misc
 """
 other important things!
-save every 10th game or so
-optimise to hell before AI training! try to make state values binary 
-
+save every 10th game or so 
 
 maybe for some rules based ones
 
-reallyeasy) consider round(valid_tiles/8) random moves, the greediest wins
+random) duh
+reallyeasy) play a random adjacent move
 easy) play a random move out of the greediest 5
 medium) play a random move of the greediest 3
 hard) play the greediest move
-MCTS easy) use 2-ply search 
-MCTS hard) use the highest computationally reasonable search
+MCTS easy) use weak MCTS 
+MCTS hard) use strong MCTS
+maybe add a minmax + MCTS
+
+maybe get a win/loss record for the agent for the past 1000 moves every 1000 games, and for every percent above 75 the RL beats the previous bot, make 5% of their opponents the harder one
 
 for holes, maybe do perlin noise, add a bias to the sides 4,4, normalize so only 
 10, 15, 20, and 30 tiles meet a threshold respectively (e.g. 0.3), and then
 any tile above the threshold becomes a hole. batch generate like 50k of these and choose
 them at random, and utilise them around 20-40% of the time. don't calculate 
 on-the-fly, it would be really expensive
+
+or maybe just follow rod pierce, with just the random tenth of tiles being holes
 """
 #endregion
