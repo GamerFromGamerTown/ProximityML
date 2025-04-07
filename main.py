@@ -36,7 +36,7 @@ import copy
 
 # These control the player types:
 IsAdjacentUsed = True # The adjacency checks add a decent amount of overhead, but are critical for all bots, barring the RL-algorithm
-p1movetype = 1  # e.g., 1: random, 2: human, 3: RandomAdjacentTileBot, 4 is easy, 5 is medium, 6 is hard (greediest move), 7 is MCTS
+p1movetype = 7  # e.g., 1: random, 2: human, 3: RandomAdjacentTileBot, 4 is easy, 5 is medium, 6 is hard (greediest move), 7 is MCTS
 p2movetype = 1
 p3movetype = 6
 HoleRandomnessType = 1  # 0 for none, 1 for pure randomness, 2 for perlin (not yet implemented)
@@ -191,8 +191,9 @@ def PlayerAssignment():
 PlayerAssignment()
 
 def ApplyMechanics(player, x, y, num, g=grid, NumBank=None):
-    if NumBank == None:
-        NumBank == player.NumBank
+    if type(NumBank) == list:
+        if len(NumBank) > 0:
+            del NumBank[0]
     IsAdjacentToSomethingCheck(x, y)
     g[y][x] = set_adjacent(g[y][x], False)
     adj_mask[y][x] = False   
