@@ -158,6 +158,7 @@ class Player:
         self.MoveType = int(0)
         self.MoveNumber = int(0)
         self.SumOfRolls = int(0)
+        self.id = int(0)
 
 class FakePlayer:
     def __init__(self, name):
@@ -182,9 +183,9 @@ def PlayerAssignment():
     temp = random.sample(PossiblePlayers, 3)
     global Player1, Player2, Player3
     Player1, Player2, Player3 = Player(temp[0]), Player(temp[1]), Player(temp[2])
-    Player1.MoveType = p1movetype 
-    Player2.MoveType = p2movetype
-    Player3.MoveType = p3movetype
+    Player1.MoveType, Player1.id = p1movetype, 1 
+    Player2.MoveType, Player2.id = p2movetype, 2
+    Player3.MoveType, Player3.id = p3movetype, 3
     # might also create a mapping from owner value to Player for later use.
     owner_to_player = {Player1.name: Player1, Player2.name: Player2, Player3.name: Player3}
 
@@ -281,6 +282,9 @@ def EvalFromMoveList(move_list, player): # this is a basic formula ! try to upgr
 
 
 def GameTest(player, player1, player2, stochastity=0.1, g=None, simnum=50, player3=None): 
+    player.id = RelativeP1
+    RelativeP2 = PlayerNum+1 % PlayerCount
+    RelativeP3 = PlayerNum+2 % PlayerCount if player3 else None
     winners = []
     LocalMoveNum = GlobalMoveNum
     for _ in range(int(simnum)):
@@ -291,7 +295,6 @@ def GameTest(player, player1, player2, stochastity=0.1, g=None, simnum=50, playe
         p2tempnumbank = player2.NumBank.copy()
         random.shuffle(p1tempnumbank)
         random.shuffle(p2tempnumbank)
-    
         if player3 != None:
             p3tempnumbank = player3.NumBank.copy()
             random.shuffle(p3tempnumbank)
@@ -331,6 +334,7 @@ def MonteCarlosSearch(player, player1, player2, stochastity=0.1, grid=grid, simn
         y, x = coord
         move(player, num, x, y, grid_copy)
         MoveGoodness = GameTest(player, player1, player2, stochastity, grid)
+        print("The added was", x, y, MoveGoodness)
         move_list.append((x, y, MoveGoodness))
     print("before i error out, here's the adj_mask", np.argwhere(adj_mask)) #debug
     best_move = max(move_list, key=lambda move: move[2])
