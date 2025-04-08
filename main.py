@@ -189,13 +189,13 @@ def PlayerAssignment():
 
 PlayerAssignment()
 
-def ApplyMechanics(player, x, y, num, g=grid, NumBank=None):
+def ApplyMechanics(player, x, y, num, g=grid, adjmask = adj_mask, NumBank=None):
     if type(NumBank) == list:
         if len(NumBank) > 0:
             del NumBank[0]
-    IsAdjacentToSomethingCheck(x, y)
+    IsAdjacentToSomethingCheck(x, y, g)
     g[y][x] = set_adjacent(g[y][x], False)
-    adj_mask[y][x] = False   
+    adjmask[y][x] = False   
     if (x, y) in adjacent_tiles:
         adjacent_tiles.remove((int(x),int(y)))
     
@@ -220,12 +220,12 @@ def ApplyMechanics(player, x, y, num, g=grid, NumBank=None):
     values = get_value(g[ys, xs])
     x, y, num = int(x), int(y), int(num)
     
-    if adj_mask[y][x]:
-      adj_mask[y][x] = False;
+    if adjmask[y][x]:
+      adjmask[y][x] = False;
       if (x, y) in adjacent_tiles:
         adjacent_tiles.remove((x, y))
       else:
-        print("Warning! Tile in adj_mask, but not adjacent tiles.")
+        print("Warning! Tile in adjmask, but not adjacent tiles.")
     
     owners = get_owner(g[ys, xs])
     is_ally = (player.name == owners)
@@ -268,7 +268,6 @@ def ApplyMechanics(player, x, y, num, g=grid, NumBank=None):
 #     return average + exploration_term
 
 
-
 def EvalFromMoveList(move_list, player): # this is a basic formula ! try to upgrade it to something fancier (like an upper bound of confidence)
     winningnum = 0
     for move in move_list:
@@ -278,7 +277,7 @@ def EvalFromMoveList(move_list, player): # this is a basic formula ! try to upgr
     return MoveGoodness
 
 
-def GameTest(player, player1, player2, stochastity=0.1, g=None, simnum=10, player3=None): 
+def GameTest(player, player1, player2, stochastity=0.1, g=None, simnum=10, adjmask=adj_mask, player3=None): 
     winners = []
     players = [player1, player2]
 
@@ -321,28 +320,30 @@ def GameTest(player, player1, player2, stochastity=0.1, g=None, simnum=10, playe
     MoveGoodness = EvalFromMoveList(winners, player)
     return MoveGoodness
 
-def MonteCarlosSearch(player, player1, player2, stochastity=0.1, grid=grid, simnum=50, num=None):
+def MonteCarlosSearch(player, player1, player2, stochastity=0.1, fakegrid=grid, adjmask=adj_mask, simnum=50, num=None):
     if num == None:
         num = player.NumBank[0]
     move_list = [] 
-    neighbors = np.argwhere(adj_mask)  # Each element is [y, x]
+    neighbors = np.argwhere(adjmask)  # Each element is [y, x]
     if len(neighbors) == 0:
-        neighbors = np.argwhere(is_valid(grid))
+        neighbors = np.argwhere(is_valid(fakegrid))
+        
     for coord in neighbors:
-        grid_copy = np.copy(grid)
+        grid_copy = np.copy(fakegrid)
         y, x = coord
         move(player, num, x, y, grid_copy)
-        MoveGoodness = GameTest(player, player1, player2, stochastity, grid)
+        MoveGoodness = GameTest(player, player1, player2, stochastity, fakegrid, simnum,adjmask)
         print("The added was", x, y, MoveGoodness)
         move_list.append((x, y, MoveGoodness))
-    print("before i error out, here's the adj_mask", np.argwhere(adj_mask)) #debug
+    print("before i error out, here's the adjmask", np.argwhere(adjmask)) #debug
     best_move = max(move_list, key=lambda move: move[2])
     print("I, the humble MCTS bot, playing as", str(player.name)+",", "with number", str(num)+",", "chose my move to be", "("+str(best_move[0])+", "+str(best_move[1])+")", "out of", len(move_list), "options.") # debug
     return best_move
             
 def MCTSbot(player, player1, player2, stochastity=0.1, simnum=50):
     root = copy.deepcopy(grid)
-    best_move = MonteCarlosSearch(player, player1, player2, stochastity, root, simnum)
+    adjmaskcopy = copy.deepcopy(adj_mask)
+    best_move = MonteCarlosSearch(player, player1, player2, stochastity, root, adjmaskcopy, simnum)
     move(player, player.NumBank[0], best_move[0], best_move[1], root)
     
 
@@ -353,7 +354,7 @@ def GreedyBot(player, greediness, stochastity=0, g=grid, num=None):
     if num == None:
         num = player.NumBank[0]
     if stochastity != 0 and stochastity > random.randint(1, 100):
-        RandomMove(player, num)
+        RandomMove(player, num, g)
     else:
       scores = OrderedSet()
       try:
@@ -371,16 +372,16 @@ def GreedyBot(player, greediness, stochastity=0, g=grid, num=None):
           top_moves = sorted(scores, key=lambda item: item[1], reverse=True)[:greediness]
           best_move = random.choice(top_moves)
           (x, y), _ = best_move
-          ApplyMechanics(player, x, y, num)
+          ApplyMechanics(player, x, y, num, g)
       else:
           print("Warning, GreedyBot played a random move!")
-          RandomMove(player, num)
+          RandomMove(player, num, g)
 
 def RandomMove(player, num, g=grid):
     yx = np.argwhere(is_valid(grid)) 
     if len(yx) != 0:
         y, x = yx[np.random.randint(len(yx))]
-        ApplyMechanics(player, x, y, num)
+        ApplyMechanics(player, x, y, num, g)
         return x, y
     
 def RandomAdjacentTileBot(player, num, g=grid):
@@ -390,7 +391,7 @@ def RandomAdjacentTileBot(player, num, g=grid):
         ApplyMechanics(player, x, y, num, g)
         return True, x, y
     else:
-        return RandomMove(player, num)
+        return RandomMove(player, num, g)
 
 def GetWinner(p1=Player1, p2=Player2, p3=Player3):
     if p3 == None:
@@ -515,9 +516,10 @@ def move(player, num, x, y, g=grid):
         print("Out of bounds! Critical Error!")
     if get_owner(g[y][x]) != none:
         print("Tile already occupied! Critical Error!")
-    ApplyMechanics(player, x, y, num)
+    ApplyMechanics(player, x, y, num, g)
 
-def Play(player, g=grid):
+def Play(player, g=grid): # FIX THESE TO UTILISE THE GRID
+    """AAAA"""
     if player.FirstTime:
         random.shuffle(player.NumBank)
         player.FirstTime = False 
@@ -526,12 +528,12 @@ def Play(player, g=grid):
         print("Whoops,", str(player.name)+"'s", "number bank ran out.")
         exit()
     if player.MoveType == 1:
-        RandomMove(player, player.NumBank[0])
+        RandomMove(player, player.NumBank[0], g)
     elif player.MoveType == 2:
         x, y = HumanMoveInput(player)
-        move(player, player.NumBank[0], x, y)
+        move(player, player.NumBank[0], x, y, g)
     elif player.MoveType == 3:
-        MoveMade = RandomAdjacentTileBot(player, player.NumBank[0])
+        MoveMade = RandomAdjacentTileBot(player, player.NumBank[0], g)
     elif player.MoveType == 4:
         GreedyBot(player, 5)
     elif player.MoveType == 5:
@@ -591,7 +593,6 @@ Checklist
 11) optimise, esp. state values and excessive loops [✓] # a lot harder than i thought; note one can probably do more, but i didn't do the 80/20
 12) implement MCTS bots to encourage deeper thinking [-] # try greedy rollouts and random rollouts
 13) get a reinforcement learning agent to learn this game, with the help of MCTS at later stages [X]
-(note, MCTS might be impossible due to state-space explosion, at least on my hardware--minmax)
 14) graphical implementation [X]
 15) elo system? [X]
 """
