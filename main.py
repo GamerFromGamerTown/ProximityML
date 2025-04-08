@@ -281,43 +281,46 @@ def EvalFromMoveList(move_list, player): # this is a basic formula ! try to upgr
     return winningratio
 
 
-def GameTest(player, player1, player2, stochastity=0.1, g=None, simnum=50, player3=None): 
-    player.id = RelativeP1
-    RelativeP2 = PlayerNum+1 % PlayerCount
-    RelativeP3 = PlayerNum+2 % PlayerCount if player3 else None
+def GameTest(player, player1, player2, stochastity=0.1, g=None, simnum=110, player3=None): 
     winners = []
+    players = [player1, player2]
+
+    if player3 is not None:
+      players.append(player3)
+    players = [player1, player2] + ([player3] if player3 else [])
+    RelativeP1, RelativeP2, RelativeP3 = players[0], players[1], players[2] if len(players) > 2 else None
     LocalMoveNum = GlobalMoveNum
     for _ in range(int(simnum)):
         root = np.copy(g)
-        p1 = copy.deepcopy(player1)
-        p2 = copy.deepcopy(player2)
-        p1tempnumbank = player1.NumBank.copy()
-        p2tempnumbank = player2.NumBank.copy()
+        tempP1 = copy.deepcopy(RelativeP1)
+        tempP2 = copy.deepcopy(RelativeP2)
+        p1tempnumbank = RelativeP1.NumBank.copy()
+        p2tempnumbank = RelativeP2.NumBank.copy()
         random.shuffle(p1tempnumbank)
         random.shuffle(p2tempnumbank)
         if player3 != None:
-            p3tempnumbank = player3.NumBank.copy()
+            p3tempnumbank = RelativeP3.NumBank.copy()
             random.shuffle(p3tempnumbank)
-            p3 = copy.deepcopy(player3)
+            tempP3 = copy.deepcopy(RelativeP3)
         for num in p1tempnumbank:
             LocalMoveNum += 1
-            p1num, p2num, p3num = p1tempnumbank[0], p2tempnumbank[0], p3tempnumbank[0] if player3 else none
+            p1num, p2num, p3num = p1tempnumbank[0], p2tempnumbank[0], p3tempnumbank[0] if player3 else None
             if LocalMoveNum >= MoveMax:
                 break
-            GreedyBot(p1, 1, stochastity, root, p1tempnumbank[0]) # This starts the loop at player 1, but with simulations, this isn't always necessarily the case. Fix pls :3
+            GreedyBot(tempP1, 1, stochastity, root, p1tempnumbank[0]) # This starts the loop at player 1, but with simulations, this isn't always necessarily the case. Fix pls :3
             print("aaa i'm being noisy fix me")
             LocalMoveNum += 1 
             if GameIsOver(False):
                 break
-            GreedyBot(p2, 1, stochastity, root)
+            GreedyBot(tempP2, 1, stochastity, root)
             if GameIsOver(False):
                 break
             if PlayerCount == 3:
                 LocalMoveNum += 1
                 if GameIsOver(False):
                     break   
-                GreedyBot(p3, 1, stochastity, root)
-        winner = GetWinner(p1, p2, None)
+                GreedyBot(TempP3, 1, stochastity, root)
+        winner = GetWinner(tempP1, tempP2, None)
         winners.append(winner)
     MoveGoodness = EvalFromMoveList(winners, player)
     return MoveGoodness
