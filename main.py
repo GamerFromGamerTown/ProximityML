@@ -32,8 +32,6 @@ import math
 import time
 import copy
 
-# import mcts # maybe
-
 # These control the player types:
 IsAdjacentUsed = True # The adjacency checks add a decent amount of overhead, but are critical for all bots, barring the RL-algorithm
 p1movetype = 7  # e.g., 1: random, 2: human, 3: RandomAdjacentTileBot, 4 is easy, 5 is medium, 6 is hard (greediest move), 7 is MCTS
@@ -273,15 +271,14 @@ def ApplyMechanics(player, x, y, num, g=grid, NumBank=None):
 
 def EvalFromMoveList(move_list, player): # this is a basic formula ! try to upgrade it to something fancier (like an upper bound of confidence)
     winningnum = 0
-    losingnum = 0
     for move in move_list:
         if move == player:
             winningnum += 1
-    winningratio = winningnum / len(move_list)
-    return winningratio
+    MoveGoodness = winningnum / len(move_list)
+    return MoveGoodness
 
 
-def GameTest(player, player1, player2, stochastity=0.1, g=None, simnum=110, player3=None): 
+def GameTest(player, player1, player2, stochastity=0.1, g=None, simnum=10, player3=None): 
     winners = []
     players = [player1, player2]
 
@@ -308,7 +305,6 @@ def GameTest(player, player1, player2, stochastity=0.1, g=None, simnum=110, play
             if LocalMoveNum >= MoveMax:
                 break
             GreedyBot(tempP1, 1, stochastity, root, p1tempnumbank[0]) # This starts the loop at player 1, but with simulations, this isn't always necessarily the case. Fix pls :3
-            print("aaa i'm being noisy fix me")
             LocalMoveNum += 1 
             if GameIsOver(False):
                 break
@@ -325,7 +321,7 @@ def GameTest(player, player1, player2, stochastity=0.1, g=None, simnum=110, play
     MoveGoodness = EvalFromMoveList(winners, player)
     return MoveGoodness
 
-def MonteCarlosSearch(player, player1, player2, stochastity=0.1, grid=grid, simnum=50, num = None):
+def MonteCarlosSearch(player, player1, player2, stochastity=0.1, grid=grid, simnum=50, num=None):
     if num == None:
         num = player.NumBank[0]
     move_list = [] 
@@ -348,6 +344,7 @@ def MCTSbot(player, player1, player2, stochastity=0.1, simnum=50):
     root = copy.deepcopy(grid)
     best_move = MonteCarlosSearch(player, player1, player2, stochastity, root, simnum)
     move(player, player.NumBank[0], best_move[0], best_move[1], root)
+    
 
 """
 YOU CAN VECTORISE GREEDY BOT! especially stochastity, you can probably make a really long list of random numbers using np and count through it
