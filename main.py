@@ -280,13 +280,12 @@ def EvalFromMoveList(move_list, player): # this is a basic formula ! try to upgr
 def GameTest(player, player1, player2, stochastity=0.1, g=None, simnum=10, adjmask=adj_mask, player3=None): 
     winners = []
     players = [player1, player2]
-
     if player3 is not None:
       players.append(player3)
     players = [player1, player2] + ([player3] if player3 else [])
     RelativeP1, RelativeP2, RelativeP3 = players[0], players[1], players[2] if len(players) > 2 else None
-    LocalMoveNum = GlobalMoveNum
-    for _ in range(int(simnum)):
+    LocalMoveNum = GlobalMoveNum - 1
+    for _ in range(int(1)): # SHOULD BE SIMNUM
         root = np.copy(g)
         tempP1 = copy.deepcopy(RelativeP1)
         tempP2 = copy.deepcopy(RelativeP2)
@@ -305,14 +304,14 @@ def GameTest(player, player1, player2, stochastity=0.1, g=None, simnum=10, adjma
                 break
             GreedyBot(tempP1, 1, stochastity, root, p1tempnumbank[0]) # This starts the loop at player 1, but with simulations, this isn't always necessarily the case. Fix pls :3
             LocalMoveNum += 1 
-            if GameIsOver(False):
+            if GameIsOver(False, LocalMoveNum):
                 break
             GreedyBot(tempP2, 1, stochastity, root)
-            if GameIsOver(False):
+            if GameIsOver(False, LocalMoveNum):
                 break
             if PlayerCount == 3:
                 LocalMoveNum += 1
-                if GameIsOver(False):
+                if GameIsOver(False, LocalMoveNum):
                     break   
                 GreedyBot(TempP3, 1, stochastity, root)
         winner = GetWinner(tempP1, tempP2, None)
@@ -374,8 +373,9 @@ def GreedyBot(player, greediness, stochastity=0, g=grid, num=None):
           (x, y), _ = best_move
           ApplyMechanics(player, x, y, num, g)
       else:
-          print("Warning, GreedyBot played a random move!")
           RandomMove(player, num, g)
+          if GlobalMoveNum > 1:
+            print("Warning, GreedyBot played a random move!")
 
 def RandomMove(player, num, g=grid):
     yx = np.argwhere(is_valid(grid)) 
@@ -393,12 +393,10 @@ def RandomAdjacentTileBot(player, num, g=grid):
     else:
         return RandomMove(player, num, g)
 
-def GetWinner(p1=Player1, p2=Player2, p3=Player3):
-    if p3 == None:
-        p3 = Player3
+def GetWinner(p1=Player1, p2=Player2, p3=None):
     print(p1.name, p1.score, p2.name, p2.score, Player3.name, Player3.score)
     winner = Winner("")
-    winner.score = max(p1.score, p2.score, p3.score)
+    winner.score = max(p1.score, p2.score, p3.score if p3 != None else 0)
     if p1.score == winner.score:
         winner.name.append(p1.name)
         winner.player.append("Player1")
