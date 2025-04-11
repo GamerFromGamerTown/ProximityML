@@ -40,7 +40,6 @@ p3movetype = 6
 HoleRandomnessType = 1  # 0 for none, 1 for pure randomness, 2 for perlin (not yet implemented)
 PlayerCount = 2
 RandomHoleOccurancePercentage = 10
-global GlobalMoveNum
 
 if p1movetype == 2 or p2movetype == 2 or p3movetype == 2:
     import re  # regex
@@ -117,10 +116,7 @@ def set_adjacent(tile, YN):
     bit = (0b0000000010000000 if YN else 0)
     return np.uint16(cleared | bit)
 
-
 adj_mask = np.zeros((8,10), dtype=bool)
-
-
 
 if not RandomHoleOccurancePercentage >= 0 and not RandomHoleOccurancePercentage <= 1:
   RandomHoleOccurancePercentage = 10
@@ -136,13 +132,6 @@ elif HoleRandomnessType == 1:
 else:
     print("Warning, HoleRandomnessType is poorly defined. Proceeding with no holes.")
     grid = np.full((8, 10), 0b1000000000000000, dtype=np.uint16)
-
-GlobalMoveNum = 0
-try: 
-  holemasksum = hole_mask.sum()
-  MoveMax = (xMax * yMax) - holemasksum
-except:
-  MoveMax = xMax * yMax
 
 # endregion
 # region MainFunctions
@@ -189,11 +178,11 @@ def PlayerAssignment():
 
 PlayerAssignment()
 
-def ApplyMechanics(player, x, y, num, g=grid, adjmask = adj_mask, NumBank=None):
+def ApplyMechanics(player, x, y, num, g=grid, adjmask = adj_mask, adjtilesset = adjacent_tiles, NumBank=None):
     if type(NumBank) == list:
         if len(NumBank) > 0:
             del NumBank[0]
-    IsAdjacentToSomethingCheck(x, y, g)
+    IsAdjacentToSomethingCheck(x, y, g, adjmask, adjtilesset)
     g[y][x] = set_adjacent(g[y][x], False)
     adjmask[y][x] = False   
     if (x, y) in adjacent_tiles:
@@ -203,11 +192,8 @@ def ApplyMechanics(player, x, y, num, g=grid, adjmask = adj_mask, NumBank=None):
         g[y][x] = set_valid(g[y][x], False)
     else:
         print("Critical Error! Chose an invalid tile!!!!!")
-    if "grid" == str(g):
-        global GlobalMoveNum
-        GlobalMoveNum += 1
-    if GlobalMoveNum > MoveMax:
-      print("GlobalMoveNumber is equal to or greater than MoveMax")
+    if not np.any(g & 0b1000000000000000):
+      print("No valid tiles remain!")
       GetWinner()
       exit()
     offsets = np.array(EvenRowOffsets if y % 2 == 0 else OddRowOffsets)  
@@ -222,8 +208,8 @@ def ApplyMechanics(player, x, y, num, g=grid, adjmask = adj_mask, NumBank=None):
     
     if adjmask[y][x]:
       adjmask[y][x] = False;
-      if (x, y) in adjacent_tiles:
-        adjacent_tiles.remove((x, y))
+      if (x, y) in adjtilesset:
+        adjtilesset.remove((x, y))
       else:
         print("Warning! Tile in adjmask, but not adjacent tiles.")
     
@@ -277,18 +263,18 @@ def EvalFromMoveList(move_list, player): # this is a basic formula ! try to upgr
     return MoveGoodness
 
 
-def GameTest(player, player1, player2, stochastity=0.1, g=None, simnum=10, adjmask=adj_mask, player3=None): 
+def GameTest(player, player1, player2, stochastity=0.1, g=None, simnum=10, adjmask=adj_mask, adjtilesset = adjacent_tiles, player3=None): 
     winners = []
     players = [player1, player2]
     if player3 is not None:
       players.append(player3)
     players = [player1, player2] + ([player3] if player3 else [])
     RelativeP1, RelativeP2, RelativeP3 = players[0], players[1], players[2] if len(players) > 2 else None
-    LocalMoveNum = GlobalMoveNum - 1
-    for _ in range(int(1)): # SHOULD BE SIMNUM
-        root = np.copy(g)
-        tempP1 = copy.deepcopy(RelativeP1)
-        tempP2 = copy.deepcopy(RelativeP2)
+    root = np.copy(g)
+    tempPlayer = copy.deepcopy(player)
+    tempP1 = copy.deepcopy(RelativeP1)
+    tempP2 = copy.deepcopy(RelativeP2)
+    for _ in range(int(simnum)): # SHOULD BE SIMNUM
         p1tempnumbank = RelativeP1.NumBank.copy()
         p2tempnumbank = RelativeP2.NumBank.copy()
         random.shuffle(p1tempnumbank)
@@ -298,25 +284,22 @@ def GameTest(player, player1, player2, stochastity=0.1, g=None, simnum=10, adjma
             random.shuffle(p3tempnumbank)
             tempP3 = copy.deepcopy(RelativeP3)
         for num in p1tempnumbank:
-            LocalMoveNum += 1
             p1num, p2num, p3num = p1tempnumbank[0], p2tempnumbank[0], p3tempnumbank[0] if player3 else None
-            if LocalMoveNum >= MoveMax:
+            if not np.any(g & 0b1000000000000000): 
                 break
-            GreedyBot(tempP1, 1, stochastity, root, p1tempnumbank[0]) # This starts the loop at player 1, but with simulations, this isn't always necessarily the case. Fix pls :3
-            LocalMoveNum += 1 
-            if GameIsOver(False, LocalMoveNum):
-                break
-            GreedyBot(tempP2, 1, stochastity, root)
-            if GameIsOver(False, LocalMoveNum):
+            GreedyBot(tempP1, 1, stochastity, root, adjtilesset, adjmask, p1tempnumbank[0]) # This starts the loop at player 1, but with simulations, this isn't always necessarily the case. Fix pls :3
+            if not np.any(g & 0b1000000000000000): # Checks if any tile has the valid bit.
+                break # if none do, break out of the loop.
+            GreedyBot(tempP2, 1, stochastity, root, adjtilesset, adjmask, p2tempnumbank[0])
+            if not np.any(g & 0b1000000000000000):
                 break
             if PlayerCount == 3:
-                LocalMoveNum += 1
-                if GameIsOver(False, LocalMoveNum):
+                if not np.any(g & 0b1000000000000000): 
                     break   
-                GreedyBot(TempP3, 1, stochastity, root)
+                GreedyBot(tempP3, 1, stochastity, root, adjtilesset, adjmask, p3tempnumbank[0])
         winner = GetWinner(tempP1, tempP2, None)
         winners.append(winner)
-    MoveGoodness = EvalFromMoveList(winners, player)
+    MoveGoodness = EvalFromMoveList(winners, tempPlayer)
     return MoveGoodness
 
 def MonteCarlosSearch(player, player1, player2, stochastity=0.1, fakegrid=grid, adjmask=adj_mask, simnum=50, num=None):
@@ -331,25 +314,24 @@ def MonteCarlosSearch(player, player1, player2, stochastity=0.1, fakegrid=grid, 
         grid_copy = np.copy(fakegrid)
         y, x = coord
         move(player, num, x, y, grid_copy)
-        MoveGoodness = GameTest(player, player1, player2, stochastity, fakegrid, simnum,adjmask)
-        print("The added was", x, y, MoveGoodness)
+        MoveGoodness = GameTest(player, player1, player2, stochastity, fakegrid, simnum, adjmask)
         move_list.append((x, y, MoveGoodness))
     print("before i error out, here's the adjmask", np.argwhere(adjmask)) #debug
     best_move = max(move_list, key=lambda move: move[2])
-    print("I, the humble MCTS bot, playing as", str(player.name)+",", "with number", str(num)+",", "chose my move to be", "("+str(best_move[0])+", "+str(best_move[1])+")", "out of", len(move_list), "options.") # debug
+    print("I, the humble MCTS bot, playing as", str(player.name)+",", "with number", str(num)+",", "chose my move to be", "("+str(best_move[0])+", "+str(best_move[1])+")", "out of", len(move_list)) # debug
     return best_move
             
 def MCTSbot(player, player1, player2, stochastity=0.1, simnum=50):
     root = copy.deepcopy(grid)
     adjmaskcopy = copy.deepcopy(adj_mask)
-    best_move = MonteCarlosSearch(player, player1, player2, stochastity, root, adjmaskcopy, simnum)
+    best_move = MonteCarlosSearch(player, player1, player2, stochastity, root, adjmaskcopy, simnum, player.NumBank[0])
     move(player, player.NumBank[0], best_move[0], best_move[1], root)
     
 
 """
 YOU CAN VECTORISE GREEDY BOT! especially stochastity, you can probably make a really long list of random numbers using np and count through it
 """
-def GreedyBot(player, greediness, stochastity=0, g=grid, num=None): 
+def GreedyBot(player, greediness, stochastity=0, g=grid, adjtilesset = adjacent_tiles, adjmask = adj_mask, num=None): 
     if num == None:
         num = player.NumBank[0]
     if stochastity != 0 and stochastity > random.randint(1, 100):
@@ -362,20 +344,18 @@ def GreedyBot(player, greediness, stochastity=0, g=grid, num=None):
         print("Warning, GreedyBot played a random move! Greediness not defined properly.")
         RandomMove(player, num)
         return
-      if greediness > len(adjacent_tiles):
-        greediness = len(adjacent_tiles)
-      if len(adjacent_tiles) != 0:
-          for x, y in adjacent_tiles:
+      if greediness > len(adjtilesset):
+        greediness = len(adjtilesset)
+      if len(adjtilesset) != 0:
+          for x, y in adjtilesset:
               PossibleScore = ScoreFromAbsorption(player, x, y)
               scores.append(((x, y), PossibleScore))
           top_moves = sorted(scores, key=lambda item: item[1], reverse=True)[:greediness]
           best_move = random.choice(top_moves)
           (x, y), _ = best_move
-          ApplyMechanics(player, x, y, num, g)
+          ApplyMechanics(player, x, y, num, g, adjmask, adjtilesset, player.NumBank[0])
       else:
           RandomMove(player, num, g)
-          if GlobalMoveNum > 1:
-            print("Warning, GreedyBot played a random move!")
 
 def RandomMove(player, num, g=grid):
     yx = np.argwhere(is_valid(grid)) 
@@ -396,14 +376,17 @@ def RandomAdjacentTileBot(player, num, g=grid):
 def GetWinner(p1=Player1, p2=Player2, p3=None):
     print(p1.name, p1.score, p2.name, p2.score, Player3.name, Player3.score)
     winner = Winner("")
-    winner.score = max(p1.score, p2.score, p3.score if p3 != None else 0)
+    scores = [p1.score, p2.score]
+    if p3 is not None:
+        scores.append(p3.score)
+    winner.score = max(scores)
     if p1.score == winner.score:
         winner.name.append(p1.name)
         winner.player.append("Player1")
     if p2.score == winner.score:
         winner.name.append(p2.name)
         winner.player.append("Player2")
-    if p3.score == winner.score:
+    if p3 is not None and p3.score == winner.score:
         winner.name.append(p3.name)
         winner.player.append("Player3")
     
@@ -479,16 +462,16 @@ def HumanMoveInput(player):
             print("Out of bounds.")
 
 
-def IsAdjacentToSomethingCheck(x, y, g=grid):
+def IsAdjacentToSomethingCheck(x, y, g=grid, adjmask = adj_mask, adjtilesset = adjacent_tiles):
     offsets = EvenRowOffsets if y % 2 == 0 else OddRowOffsets
     for dx, dy in offsets:
         nx, ny = x + dx, y + dy
         if not (xMin <= nx < xMax and yMin <= ny < yMax):
             continue
         if get_owner(g[ny][nx]) == none and is_valid(g[ny][nx]):
-            if (nx, ny) not in adjacent_tiles:
-                adjacent_tiles.add((nx, ny))
-                adj_mask[y][x] = True
+            if (nx, ny) not in adjtilesset:
+                adjtilesset.add((nx, ny))
+                adjmask[y][x] = True
 
 def ScoreFromAbsorption(player, x, y, g=grid):
     PossibleScore = 0
@@ -508,8 +491,8 @@ def ScoreFromAbsorption(player, x, y, g=grid):
 def move(player, num, x, y, g=grid):
     if player is None or num is None or x is None or y is None:
         print("Warning: Parameter unset!")
-    if GlobalMoveNum >= MoveMax:
-        print("MoveNum > MoveMax! Critical Error!")
+    if not np.any(grid & 0b1000000000000000):
+        print("No valid tiles! Critical Error!")
     if not (0 <= x < xMax and 0 <= y < yMax):
         print("Out of bounds! Critical Error!")
     if get_owner(g[y][x]) != none:
@@ -545,8 +528,8 @@ def Play(player, g=grid): # FIX THESE TO UTILISE THE GRID
         exit()
     del player.NumBank[0]
 
-def GameIsOver(gridshown=True, movenum=GlobalMoveNum):
-    if movenum >= MoveMax:
+def GameIsOver(gridshown=True, g=grid):
+    if not np.any(g & 0b1000000000000000):
         if gridshown == True:
             display_grid()
         return True
@@ -558,8 +541,7 @@ def GameIsOver(gridshown=True, movenum=GlobalMoveNum):
 
 # region MainLoop
 while True:
-    if GlobalMoveNum >= MoveMax:
-        display_grid()
+    if not np.any(grid & 0b1000000000000000):
         break
     Play(Player1)
     if GameIsOver():
@@ -571,7 +553,7 @@ while True:
         if GameIsOver():
             break
         Play(Player3)
-  
+                  
 GetWinner()
 # endregion
 # region Checklist 
