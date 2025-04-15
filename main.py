@@ -150,16 +150,25 @@ class Player:
         self.id = int(0)
 
 class Grid:
-    def __init__(self, x_max=10, y_max=8, roll_max=20, hole_percentage=10):
+    def __init__(self, 
+    x_max=10, y_max=8, 
+    roll_max=20,
+    hole_percentage=10,
+    evenrowoffsets= [(-1, 0), (1, 0), (-1, -1), (0, -1), (-1, 1), (0, 1)],
+    oddrowoffsets=[(-1, 0), (1, 0), (0, -1), (1, -1), (0, 1), (1, 1)]
+):
         # Grid dimensions and settings
         self.x_max = x_max  
         self.y_max = y_max  
         self.roll_max = roll_max
         self.hole_percentage = hole_percentage
-        
+        self.evenrowoffsets = evenrowoffsets
+        self.oddrowoffsets = oddrowoffsets
+
         self.state = self.initialize_state()
         
         self.adj_mask = np.zeros((y_max, x_max), dtype=bool)
+
     
     def initialize_state(self):
         valid_bit = 0b1000000000000000
@@ -169,8 +178,8 @@ class Grid:
             grid[hole_mask] = grid[hole_mask] & 0b0111111111111111 # This gets rid of the valid bits on the holes.
         grid = grid & 0b1111111110000000 # Clears the x and y bits. Probably unecessary, but it doesn't hurt.
         
-        xMask = np.arange(0, self.y_Max*self.x_Max) % self.x_Max 
-        yMask = np.arange(0, self.y_Max*self.x_Max) // self.x_Max # Makes a mask of the X and y values,
+        xMask = np.arange(0, self.y_max*self.x_max) % self.x_max 
+        yMask = np.arange(0, self.y_max*self.x_max) // self.x_max # Makes a mask of the X and y values,
         xMask = xMask.reshape(self.y_max, self.x_max) # makes it shaped like the grid, 
         yMask = yMask.reshape(self.y_max, self.x_max)
         
@@ -178,11 +187,29 @@ class Grid:
         grid = grid | xMask << 3 
         return grid
     
-    def get_adjacent_tiles(self):
-        
-        
+    def get_adjacent_tiles(self, x, y):
+        offsets = np.array(self.evenrowoffsets if y % 2 == 0 else self.oddrowoffsets)  
+        neighbor_coords = np.array([x, y]) + offsets
+        ys, xs = neighbor_coords[:, 1], neighbor_coords[:, 0]
+        in_bounds = (xs >= 0) & (xs < self.xMax) & (ys >= 0) & (ys < self.yMax)
+        ys, xs = ys[in_bounds], xs[in_bounds]
+        return np.column_stack((xs, ys))
 
+    def add_tile(self, x, y, owner, value, g): 
+        if get_owner(self.grid[y][x]) != none: print("Critical Error! Tile already taken.")
+        set_owner(self.grid[y][x], owner)
+        set_value(self.grid[y][x], value)
 
+    def update_neighbors(self, x, y, pvalue, num):
+        neighbors = get_adjacent_tiles(x, y)
+        owners = get_owner(neighbors)
+        values = get_value(neighbors)
+        is_ally = (pvalue == owners)
+        is_weaker_enemy = ((pvalue != owners) & (pvalue != none)) & ((values < num) & (values != 0)) 
+        if len(is_weaker_enemy != 0): set_owner(neighbors & is_weaker_enemy, pvalue)
+        if len(is_ally != 0): set_value(neighbors & is_ally, values + 1)
+
+        p.score += num        
 
 class Winner:
     def __init__(self, name):
