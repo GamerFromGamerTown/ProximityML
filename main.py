@@ -149,15 +149,40 @@ class Player:
         self.SumOfRolls = int(0)
         self.id = int(0)
 
-class FakePlayer:
-    def __init__(self, name):
-        self.name = name  # this holds the bit mask value for the player (red, green, or blue)
-        self.score = int(0)
-        self.NumBank = list(range(1, RollMax+1)) * 2
-        self.FirstTime = True
-        self.MoveType = int(0)
-        self.MoveNumber = int(0)
-        self.SumOfRolls = int(0)
+class Grid:
+    def __init__(self, x_max=10, y_max=8, roll_max=20, hole_percentage=10):
+        # Grid dimensions and settings
+        self.x_max = x_max  
+        self.y_max = y_max  
+        self.roll_max = roll_max
+        self.hole_percentage = hole_percentage
+        
+        self.state = self.initialize_state()
+        
+        self.adj_mask = np.zeros((y_max, x_max), dtype=bool)
+    
+    def initialize_state(self):
+        valid_bit = 0b1000000000000000
+        grid = np.full((self.y_max, self.x_max), valid_bit, dtype=np.uint16)
+        if self.hole_percentage != 0:
+            hole_mask = np.random.rand(self.y_max, self.x_max) < (self.hole_percentage / 100)
+            grid[hole_mask] = grid[hole_mask] & 0b0111111111111111 # This gets rid of the valid bits on the holes.
+        grid = grid & 0b1111111110000000 # Clears the x and y bits. Probably unecessary, but it doesn't hurt.
+        
+        xMask = np.arange(0, self.y_Max*self.x_Max) % self.x_Max 
+        yMask = np.arange(0, self.y_Max*self.x_Max) // self.x_Max # Makes a mask of the X and y values,
+        xMask = xMask.reshape(self.y_max, self.x_max) # makes it shaped like the grid, 
+        yMask = yMask.reshape(self.y_max, self.x_max)
+        
+        grid = grid | yMask # and applies it to the grid.
+        grid = grid | xMask << 3 
+        return grid
+    
+    def get_adjacent_tiles(self):
+        
+        
+
+
 
 class Winner:
     def __init__(self, name):
