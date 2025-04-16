@@ -144,10 +144,23 @@ class Player:
         self.score = int(0)
         self.NumBank = list(range(1, RollMax+1)) * 2
         self.FirstTime = True
-        self.MoveType = int(0)
+        self.MoveType = int(0)  
         self.MoveNumber = int(0)
         self.SumOfRolls = int(0)
         self.id = int(0)
+        
+class GreedyPlayer(Player):
+    def __init__(self, color, greediness=1, stochasticity=0):
+        # Init all the base Player attributes
+        super().__init__(color)
+        
+        self.greediness = greediness
+        self.stochasticity = stochasticity
+
+    def make_move(self, grid: Grid):
+        Grid
+        pass
+
 
 class Grid:
     def __init__(self, 
@@ -191,25 +204,30 @@ class Grid:
         offsets = np.array(self.evenrowoffsets if y % 2 == 0 else self.oddrowoffsets)  
         neighbor_coords = np.array([x, y]) + offsets
         ys, xs = neighbor_coords[:, 1], neighbor_coords[:, 0]
-        in_bounds = (xs >= 0) & (xs < self.xMax) & (ys >= 0) & (ys < self.yMax)
+        in_bounds = (xs >= 0) & (xs < self.x_max) & (ys >= 0) & (ys < self.y_max)
         ys, xs = ys[in_bounds], xs[in_bounds]
         return np.column_stack((xs, ys))
 
-    def add_tile(self, x, y, owner, value, g): 
+    def add_tile(self, x, y, owner, value, g=None): 
+        if g is None: g = self.state
         if get_owner(self.grid[y][x]) != none: print("Critical Error! Tile already taken.")
         set_owner(self.grid[y][x], owner)
         set_value(self.grid[y][x], value)
+        update_neighbors(x, y, owner, owner.NumBank)
 
-    def update_neighbors(self, x, y, pvalue, num):
-        neighbors = get_adjacent_tiles(x, y)
-        owners = get_owner(neighbors)
-        values = get_value(neighbors)
+    def update_neighbors(self, x, y, pvalue, num, g=None):
+        if g is None: g = self.state
+        neighbors, owners, values = get_adjacent_tiles(x, y), np.vectorize(get_owner)(neighbors), np.vectorize(get_value)(neighbors)
         is_ally = (pvalue == owners)
         is_weaker_enemy = ((pvalue != owners) & (pvalue != none)) & ((values < num) & (values != 0)) 
-        if len(is_weaker_enemy != 0): set_owner(neighbors & is_weaker_enemy, pvalue)
-        if len(is_ally != 0): set_value(neighbors & is_ally, values + 1)
+        if np.any(is_weaker_enemy): g = set_owner((neighbors & is_weaker_enemy), pvalue)
+        if np.any(is_ally): g = set_value((neighbors & is_ally), values + 1)
 
-        p.score += num        
+        p.score += num
+        
+    def clone(self):
+        return deep.copy(self)
+    
 
 class Winner:
     def __init__(self, name):
