@@ -50,8 +50,8 @@ if p1movetype == 2 or p2movetype == 2 or p3movetype == 2:
 none, red, green, blue = 0b00, 0b01, 0b10, 0b11
 
 # Grid dimensions and roll settings
-xMax = 10  # columns
-yMax = 8   # rows
+x_max = 10  # columns
+y_max = 8   # rows
 xMin = 0
 yMin = 0
 RollMax = 20
@@ -136,7 +136,24 @@ else:
     MainGrid = np.full((8, 10), 0b1000000000000000, dtype=np.uint16)
 
 # endregion
-# region MainFunctions
+def HumanMoveInput(player):
+  while True:
+    display_grid()
+    print("Your number is", player.NumBank[0], "and your color is", str(player.name)+".")
+    move_input = input("What is your move? Structure it as X,Y : ")
+    match = re.match(r"(\d+),\s*(\d+)", move_input)
+    if match:
+        x, y = map(int, match.groups())
+        print(f"X: {x}, Y: {y}")
+        inbounds = (xMin <= x < x_max and yMin <= y < y_max)
+        if inbounds:
+            if get_owner(MainGrid[y][x]) == none and is_valid(MainGrid[y][x]):
+              return x, y
+            else:
+                print("Invalid input.")
+        else:
+            print("Out of bounds.")
+# region PrimaryCode
 
 class Player:
     def __init__(self, name):
@@ -144,23 +161,43 @@ class Player:
         self.score = int(0)
         self.NumBank = list(range(1, RollMax+1)) * 2
         self.FirstTime = True
-        self.MoveType = int(0)  
+        self.MoveType = int(0)
         self.MoveNumber = int(0)
         self.SumOfRolls = int(0)
         self.id = int(0)
-        
-class GreedyPlayer(Player):
-    def __init__(self, color, greediness=1, stochasticity=0):
-        # Init all the base Player attributes
-        super().__init__(color)
-        
-        self.greediness = greediness
-        self.stochasticity = stochasticity
+    
+    def MakeRandomMove(self, owner, g):
+        yx = np.argwhere(is_valid(g)) 
+        if len(yx) != 0:
+            print("Critical error! MakeRandomMove called, while no valid options are avaliable.")
+            y, x = yx[np.random.randint(len(yx))]
+            Grid.add_tile(self, x, y, self.name, self.NumBank[0], g)
+        del self.NumBank[0]
+    
+    def MakeRandomAdjacentMove(self, owner, g):
+        yx = np.argwhere(adj_mask)
+        if len(yx) != 0:
+            y, x = yx[np.random.randint(len(yx))]
+            Grid.add_tile(self, x, y, self.name, self.NumBank[0], g)
+        del self.NumBank[0]
 
-    def make_move(self, grid: Grid):
-        Grid
-        pass
-
+    def MakeHumanMove(self, owner, g):
+        while True:
+            display_grid()
+            move_input = input("Your number is", player.NumBank[0], "and your color is", str(player.name)+". \n", "What is your move? Structure it as X,Y: ")
+            match = re.match(r"(\d+),\s*(\d+)", move_input)
+            if match:
+                x, y = map(int, match.groups())
+                print(f"X: {x}, Y: {y}")
+                inbounds = (xMin <= x < x_max and yMin <= y < y_max)
+                if inbounds:
+                    if get_owner(MainGrid[y][x]) == none and is_valid(MainGrid[y][x]):
+                        break
+                    else:
+                        print("Invalid input.")
+                else:
+                    print("Out of bounds.")
+        grid.add_tile(self, x, y, self.name, self.NumBank[0], g)
 
 class Grid:
     def __init__(self, 
@@ -200,34 +237,40 @@ class Grid:
         grid = grid | xMask << 3 
         return grid
     
+    def display(self, g):
+        raise NotImplementedError
+    
     def get_adjacent_tiles(self, x, y):
         offsets = np.array(self.evenrowoffsets if y % 2 == 0 else self.oddrowoffsets)  
         neighbor_coords = np.array([x, y]) + offsets
         ys, xs = neighbor_coords[:, 1], neighbor_coords[:, 0]
         in_bounds = (xs >= 0) & (xs < self.x_max) & (ys >= 0) & (ys < self.y_max)
-        ys, xs = ys[in_bounds], xs[in_bounds]
+        is_empty = (get_owner(neighbor_coords == none) & is_valid(neighbor_coords))
+        ys, xs = ys[in_bounds & is_empty], xs[in_bounds & is_empty]
         return np.column_stack((xs, ys))
 
-    def add_tile(self, x, y, owner, value, g=None): 
-        if g is None: g = self.state
+    def add_tile(self, x, y, owner, value, g): 
         if get_owner(self.grid[y][x]) != none: print("Critical Error! Tile already taken.")
         set_owner(self.grid[y][x], owner)
         set_value(self.grid[y][x], value)
-        update_neighbors(x, y, owner, owner.NumBank)
+        self.adj_mask[y][x] = 0
 
-    def update_neighbors(self, x, y, pvalue, num, g=None):
-        if g is None: g = self.state
-        neighbors, owners, values = get_adjacent_tiles(x, y), np.vectorize(get_owner)(neighbors), np.vectorize(get_value)(neighbors)
-        is_ally = (pvalue == owners)
-        is_weaker_enemy = ((pvalue != owners) & (pvalue != none)) & ((values < num) & (values != 0)) 
-        if np.any(is_weaker_enemy): g = set_owner((neighbors & is_weaker_enemy), pvalue)
-        if np.any(is_ally): g = set_value((neighbors & is_ally), values + 1)
+    def update_neighbors(self, x, y, pvalue, num):
+        neighbors = get_adjacent_tiles(x, y)
+        owners = get_owner(neighbors)
+        values = get_value(neighbors)
+        update_adjacency(self, xs, ys, neighbors, values)
+        is_ally = (values == owners)
+        is_weaker_enemy = ((values != owners) & (values != none)) & ((values < num) & (values != 0)) 
+        if len(is_weaker_enemy != 0): set_owner(neighbors & is_weaker_enemy, pvalue)
+        if len(is_ally != 0): set_value(neighbors & is_ally, values + 1)
+        pvalue.score += num      
 
-        p.score += num
-        
-    def clone(self):
-        return deep.copy(self)
-    
+    def update_adjacency(self, xs, ys, neighbors, values):
+        is_taken = (values != none)
+        is_untaken = (values == none)
+        self.adj_mask[ys[is_taken], xs[is_taken]] = 0
+        self.adj_mask[ys[is_untaken], xs[is_untaken]] = 1  
 
 class Winner:
     def __init__(self, name):
@@ -235,7 +278,8 @@ class Winner:
         self.player = []
         self.score = 0
 
-
+#endregion
+#region LegacyCode
 def PlayerAssignment():
     # Randomly assign player colors for visualization.
     PossiblePlayers = [red, green, blue]
@@ -270,7 +314,7 @@ def ApplyMechanics(p, x, y, num, g, adjmask, adjtilesset, NumBank):
     
     neighbor_coords = np.array([x, y]) + offsets
     ys, xs = neighbor_coords[:, 1], neighbor_coords[:, 0]
-    in_bounds = (xs >= 0) & (xs < xMax) & (ys >= 0) & (ys < yMax)
+    in_bounds = (xs >= 0) & (xs < x_max) & (ys >= 0) & (ys < y_max)
     ys, xs = ys[in_bounds], xs[in_bounds]
     
     values = get_value(g[ys, xs])
@@ -488,9 +532,9 @@ def display_grid():
 
   print("   0   1   2   3   4   5   6   7   8   9")
 
-  for y in range(yMax):
+  for y in range(y_max):
     row_str = ""
-    for x in range(xMax):
+    for x in range(x_max):
       owner = owners[y][x]
       value = values[y][x]
       valid = valids[y][x]
@@ -513,31 +557,11 @@ def display_grid():
 
   print("     0   1   2   3   4   5   6   7   8   9")
 
-
-def HumanMoveInput(player):
-  while True:
-    display_grid()
-    print("Your number is", player.NumBank[0], "and your color is", str(player.name)+".")
-    move_input = input("What is your move? Structure it as X,Y : ")
-    match = re.match(r"(\d+),\s*(\d+)", move_input)
-    if match:
-        x, y = map(int, match.groups())
-        print(f"X: {x}, Y: {y}")
-        inbounds = (xMin <= x < xMax and yMin <= y < yMax)
-        if inbounds:
-            if get_owner(MainGrid[y][x]) == none and is_valid(MainGrid[y][x]):
-              return x, y
-            else:
-                print("Invalid input.")
-        else:
-            print("Out of bounds.")
-
-
 def IsAdjacentToSomethingCheck(x, y, g, adjmask, adjtilesset):
     offsets = EvenRowOffsets if y % 2 == 0 else OddRowOffsets
     for dx, dy in offsets:
         nx, ny = x + dx, y + dy
-        if not (xMin <= nx < xMax and yMin <= ny < yMax):
+        if not (xMin <= nx < x_max and yMin <= ny < y_max):
             continue
         if get_owner(g[ny][nx]) == none and is_valid(g[ny][nx]):
             if (nx, ny) not in adjtilesset:
@@ -549,7 +573,7 @@ def ScoreFromAbsorption(p, x, y, g):
     offsets = EvenRowOffsets if y % 2 == 0 else OddRowOffsets
     for dx, dy in offsets:
         nx, ny = x + dx, y + dy
-        if not (xMin <= nx < xMax and yMin <= ny < yMax):
+        if not (xMin <= nx < x_max and yMin <= ny < y_max):
             continue
         GridYxValue = get_value(g[ny][nx])
         ChosenSpot = g[ny][nx]
@@ -564,7 +588,7 @@ def move(p, num, x, y, g, adjmask, adjtilesset, NumBank):
         print("Warning: Parameter unset!")
     if not np.any(g & 0b1000000000000000):
         print("No valid tiles! Critical Error!")
-    if not (0 <= x < xMax and 0 <= y < yMax):
+    if not (0 <= x < x_max and 0 <= y < y_max):
         print("Out of bounds! Critical Error!")
     if get_owner(g[y][x]) != none:
         print("Tile already occupied! Critical Error!")
