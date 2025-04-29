@@ -1,4 +1,5 @@
 from __future__ import annotations
+from types import MethodType  
 
 # region Initialize
 import numpy as np 
@@ -8,8 +9,8 @@ import copy
 import re  # regex
 
 PlayerCount= 2
-P1MoveType = 7
-P2MoveType = 7
+P1MoveType = 1
+P2MoveType = 2
 P3MoveType = 1
 
 
@@ -144,12 +145,13 @@ class GameState:
         offsets = np.array(self.evenrowoffsets if y % 2 == 0 else self.oddrowoffsets)  
         neighbor_coords = np.array([x, y]) + offsets
         ys, xs = neighbor_coords[:, 1], neighbor_coords[:, 0]
+        print(xs, ys)
         in_bounds = (xs >= 0) & (xs < self.x_max) & (ys >= 0) & (ys < self.y_max)
+        print(in_bounds)
         tiles = self.state[ys[in_bounds], xs[in_bounds]]
-        is_empty = (get_owner(tiles) == none) & (is_valid(tiles) != 0)
         ys, xs = ys[in_bounds], xs[in_bounds]
-        ys, xs = ys[is_empty], xs[is_empty]
-        return np.column_stack((xs, ys))
+        print(xs, ys)
+        return np.column_stack((ys, xs))
 
     def add_tile(self, x, y, player, tile_value): # This adds a tile to the grid, and calls the update_neighors function to absorb/reinforce surrounding tiles.
         self.turn += 1
@@ -163,6 +165,7 @@ class GameState:
     def update_neighbors(self, x, y, player, tile_value): # This, after one places a tile, adds 1 to all surrounding allies, and changes weaker enemy's owner's to the placer's.  
         """player is the Player instance who just placed tile_value at (x, y)."""
         neighbors = self.get_adjacent_tiles(x, y)
+        # print(neighbors) # this returned something unexpected
         xs, ys = neighbors[:,0], neighbors[:,1]
         owners = get_owner(self.state[ys, xs])
         values = get_value(self.state[ys, xs])
@@ -278,7 +281,8 @@ class Player:
 
     def make_random_adjacent_move(self, game: GameState) -> None: 
         """Prefer a random adjacent spot; fall back to fully random if none."""
-        yx = np.argwhere(game.adj_mask)
+        valid_and_adjacent = game.adj_mask & (is_valid(game.state) != 0)
+        yx = np.argwhere(valid_and_adjacent)
         if len(yx) == 0:
             self.make_random_move(game)
             return
@@ -287,7 +291,8 @@ class Player:
 
     def make_greedy_move(self, greediness, game: GameState, *, stochasticity: float = 0.1) -> None:
         """Choose among top‑*greediness* scoring moves; pick randomly with *stochasticity*."""
-        yx = np.argwhere(game.adj_mask)
+        valid_and_adjacent = game.adj_mask & (is_valid(game.state) != 0)
+        yx = np.argwhere(valid_and_adjacent)
         if len(yx) == 0:
             self.make_random_move(game)
             return
@@ -335,7 +340,8 @@ class Player:
 
     def make_flat_monte_carlo_move(self, game: GameState, players: list["Player"], *, sims: int = 100, stochasticity: float = 0.1) -> None:
         """Flat (one‑ply) Monte‑Carlo search: try every legal move, evaluate via rollouts, picks the best."""
-        yx = np.argwhere(game.adj_mask)
+        valid_and_adjacent = game.adj_mask & (is_valid(game.state) != 0)
+        yx = np.argwhere(valid_and_adjacent)
         if len(yx) == 0:
             self.make_random_move(game)
             return
@@ -374,21 +380,20 @@ if PlayerCount == 3:
     types.append(P3MoveType)
 
 players = []
-count = -1
 for p, movetype in zip(raw_players, types):
-    count += 1
-    print(raw_players[count], count)
     strat = move_type_map[movetype]
-    # bind the method to this instance
-    p.choose_move = strat.__get__(p, raw_players[count])
+    p.choose_move = strat.__get__(p, Player)
     players.append(p)
 
+game = GameState()
+
 while not game.is_terminal():
-    current_player = players[game.turn % PlayerCount]
-    current_player.choose_move(game, players=players)
+    current_player = players[game.turn % len(players)]
+    current_player.choose_move(game)
+
 winner = game.return_winner(players)
-print(str(winner).capitalize(), "wins!")
-game.display_grid()
+print(f"Player {winner} wins!")
+
 
 #endregion
 """
