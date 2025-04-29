@@ -12,7 +12,7 @@ https://www.mathsisfun.com/games/proximity.html
 
 * I used a bank of 2 of each number between 1 and 20 so the game doesn't get too imbalanced--so the numbers aren't random in the truest sense. 
 
-### Glossary
+### Here's some vocabulary I use in the code.
 
 - **Stochastic**  
   Having a random probability distribution or pattern.
