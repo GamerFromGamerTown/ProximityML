@@ -145,12 +145,12 @@ class GameState:
         offsets = np.array(self.evenrowoffsets if y % 2 == 0 else self.oddrowoffsets)  
         neighbor_coords = np.array([x, y]) + offsets
         ys, xs = neighbor_coords[:, 1], neighbor_coords[:, 0]
-        print(xs, ys)
+        # print(xs, ys)
         in_bounds = (xs >= 0) & (xs < self.x_max) & (ys >= 0) & (ys < self.y_max)
-        print(in_bounds)
+        # print(in_bounds)
         tiles = self.state[ys[in_bounds], xs[in_bounds]]
         ys, xs = ys[in_bounds], xs[in_bounds]
-        print(xs, ys)
+        # print(xs, ys)
         return np.column_stack((ys, xs))
 
     def add_tile(self, x, y, player, tile_value): # This adds a tile to the grid, and calls the update_neighors function to absorb/reinforce surrounding tiles.
@@ -167,7 +167,8 @@ class GameState:
         neighbors = self.get_adjacent_tiles(x, y)
         # print(neighbors) # this returned something unexpected
         xs, ys = neighbors[:,0], neighbors[:,1]
-        owners = get_owner(self.state[ys, xs])
+        print("xs, ys:", xs, ys) 
+        owners = get_owner(self.state[ys, xs]) # errors out when your or a bot plays a move near the back edge
         values = get_value(self.state[ys, xs])
         self._update_adjacency(xs, ys, values)
         # print(str(player.name)+"!!!!")
@@ -409,8 +410,8 @@ Checklist
 9) get "holes" working [✓]
 10) get some basic rules-based bots to play against [✓] 
 11) optimise, esp. state values and excessive loops [✓] # a lot harder than i thought; note one can probably do more, but i didn't do the 80/20
-12) implement MCTS bots to encourage deeper thinking [-] # try greedy rollouts and random rollouts
-13) get a reinforcement learning agent to learn this game, with the help of MCTS at later stages [X]
+12) implement MCS bots to encourage deeper thinking [-] # try greedy rollouts and random rollouts
+13) get a reinforcement learning agent to learn this game, with the help of MCS at later stages [X]
 14) graphical implementation [X]
 15) elo system? [X]
 """
