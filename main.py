@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+TempVarTotalMoves = 0
 # region Initialize
 import numpy as np 
 import random
@@ -8,7 +8,7 @@ import copy
 import re  # regex
 
 PlayerCount= 2
-P1MoveType = 1
+P1MoveType = 2
 P2MoveType = 7
 P3MoveType = 1
 
@@ -80,6 +80,8 @@ class GameState:
     hole_percentage=10,
     evenrowoffsets= [(-1, 0), (1, 0), (-1, -1), (0, -1), (-1, 1), (0, 1)],
     oddrowoffsets=[(-1, 0), (1, 0), (0, -1), (1, -1), (0, 1), (1, 1)]
+    
+
 ):
         # Grid dimensions and settings
         self.turn = turn
@@ -94,6 +96,8 @@ class GameState:
         self.state = self.initialize_state()
         
         self.adj_mask = np.zeros((y_max, x_max), dtype=bool)
+        
+        
 
     
     def initialize_state(self): # This initialises a 10x8 grid, with each tile having a 16-bit value.
@@ -141,15 +145,26 @@ class GameState:
         print(bottom_x_list)
     
     def get_adjacent_tiles(self, x, y): # This function returns the tiles surrounding a given tile from a x, y pair. 
+        """This function is VERY costly! Around half of this code's compute (i.e, optimising it could speed up this code a little under 2x). 
+        I am working on precomputing neighbours, and replacing this with something far faster."""
         offsets = np.array(self.evenrowoffsets if y % 2 == 0 else self.oddrowoffsets)  
         neighbor_coords = np.array([x, y]) + offsets
         ys, xs = neighbor_coords[:, 1], neighbor_coords[:, 0]
         in_bounds = (xs >= 0) & (xs < self.x_max) & (ys >= 0) & (ys < self.y_max)
         tiles = self.state[ys[in_bounds], xs[in_bounds]]
-        # is_not_empty = (get_owner(tiles) != none) & (is_valid(tiles) != 0)
         ys, xs = ys[in_bounds], xs[in_bounds]
-        # ys, xs = ys[is_not_empty], xs[is_not_empty]
         return np.column_stack((xs, ys))
+    
+        def precompute_neighbors(self):
+            for y in self.state:
+                for x, tile in self.state:
+                    offsets = np.array(self.evenrowoffsets if y % 2 == 0 else self.oddrowoffsets)  
+                    neighbor_coords = np.array([x, y]) + offsets
+                    ys, xs = neighbor_coords[:, 1], neighbor_coords[:, 0]
+                    in_bounds = (xs >= 0) & (xs < self.x_max) & (ys >= 0) & (ys < self.y_max)
+                    tiles = self.state[ys[in_bounds], xs[in_bounds]]
+                    ys, xs = ys[in_bounds], xs[in_bounds]
+                    return np.column_stack((xs, ys))
 
     def add_tile(self, x, y, player, tile_value): # This adds a tile to the grid, and calls the update_neighors function to absorb/reinforce surrounding tiles.
         self.turn += 1
@@ -222,6 +237,7 @@ class GameState:
         return idx + 1
 
     def rollout(self, simnum: int, stochasticity: float, players: list["Player"]): # This plays many simulated games with the greedy bot, and returns a list of who wins.
+        global TempVarTotalMoves
         winners = np.empty(simnum, dtype=np.uint8)
         for n in range(simnum):
             sim = self.clone()
@@ -229,6 +245,7 @@ class GameState:
             for p in sim_players:
                 random.shuffle(p.NumBank)
             while not sim.is_terminal():
+                TempVarTotalMoves += 1
                 current_player = sim_players[sim.turn % len(sim_players)]
                 current_player.make_greedy_move(game=sim, greediness=2, stochasticity=stochasticity)
             winners[n] = sim.return_winner(sim_players)
@@ -335,8 +352,8 @@ class Player:
 
     def make_flat_monte_carlo_move(self, game: GameState, players: list["Player"], *, sims: int = 100, stochasticity: float = 0.1) -> None:
         """Flat (one‑ply) Monte‑Carlo search: try every legal move, evaluate via rollouts, picks the best."""
-        if self.score == 0: yx = np.argwhere(game.state & VALID_MASK)
-        else: yx = np.argwhere(game.adj_mask)
+        # if self.score == 0: yx = np.argwhere(game.state & VALID_MASK)
+        yx = np.argwhere(game.adj_mask)
         if len(yx) == 0:
             self.make_random_move(game)
             return
@@ -349,7 +366,8 @@ class Player:
             sim_self = sim_players[players.index(self)]  # map to clone
             sim_game.add_tile(x, y, sim_self, sim_self.roll())
             wr = sim_game.evaluate(sims, stochasticity, sim_players, sim_self)
-            print(f"\rConsidering move {x}, {y} with goodness {wr}", end='', flush=True)
+            global TempVarTotalMoves
+            print(f"\rConsidering move ({x}, {y}) with goodness {wr} at the total number of moves at {TempVarTotalMoves} and simulations roughly at {TempVarTotalMoves // 80}", end='', flush=True)
             if wr > best_winrate:
                 best_winrate = wr
                 best_move = (x, y)
