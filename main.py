@@ -1,5 +1,4 @@
 from __future__ import annotations
-from types import MethodType  
 
 # region Initialize
 import numpy as np 
@@ -10,7 +9,7 @@ import re  # regex
 
 PlayerCount= 2
 P1MoveType = 1
-P2MoveType = 2
+P2MoveType = 7
 P3MoveType = 1
 
 
@@ -145,13 +144,12 @@ class GameState:
         offsets = np.array(self.evenrowoffsets if y % 2 == 0 else self.oddrowoffsets)  
         neighbor_coords = np.array([x, y]) + offsets
         ys, xs = neighbor_coords[:, 1], neighbor_coords[:, 0]
-        # print(xs, ys)
         in_bounds = (xs >= 0) & (xs < self.x_max) & (ys >= 0) & (ys < self.y_max)
-        # print(in_bounds)
         tiles = self.state[ys[in_bounds], xs[in_bounds]]
+        # is_not_empty = (get_owner(tiles) != none) & (is_valid(tiles) != 0)
         ys, xs = ys[in_bounds], xs[in_bounds]
-        # print(xs, ys)
-        return np.column_stack((ys, xs))
+        # ys, xs = ys[is_not_empty], xs[is_not_empty]
+        return np.column_stack((xs, ys))
 
     def add_tile(self, x, y, player, tile_value): # This adds a tile to the grid, and calls the update_neighors function to absorb/reinforce surrounding tiles.
         self.turn += 1
@@ -165,10 +163,8 @@ class GameState:
     def update_neighbors(self, x, y, player, tile_value): # This, after one places a tile, adds 1 to all surrounding allies, and changes weaker enemy's owner's to the placer's.  
         """player is the Player instance who just placed tile_value at (x, y)."""
         neighbors = self.get_adjacent_tiles(x, y)
-        # print(neighbors) # this returned something unexpected
         xs, ys = neighbors[:,0], neighbors[:,1]
-        print("xs, ys:", xs, ys) 
-        owners = get_owner(self.state[ys, xs]) # errors out when your or a bot plays a move near the back edge
+        owners = get_owner(self.state[ys, xs])
         values = get_value(self.state[ys, xs])
         self._update_adjacency(xs, ys, values)
         # print(str(player.name)+"!!!!")
@@ -234,7 +230,7 @@ class GameState:
                 random.shuffle(p.NumBank)
             while not sim.is_terminal():
                 current_player = sim_players[sim.turn % len(sim_players)]
-                current_player.make_greedy_move(sim, greediness=2, stochasticity=stochasticity)
+                current_player.make_greedy_move(game=sim, greediness=2, stochasticity=stochasticity)
             winners[n] = sim.return_winner(sim_players)
         return winners
 
@@ -282,8 +278,7 @@ class Player:
 
     def make_random_adjacent_move(self, game: GameState) -> None: 
         """Prefer a random adjacent spot; fall back to fully random if none."""
-        valid_and_adjacent = game.adj_mask & (is_valid(game.state) != 0)
-        yx = np.argwhere(valid_and_adjacent)
+        if len(yx) != 0: yx = np.argwhere(game.adj_mask)
         if len(yx) == 0:
             self.make_random_move(game)
             return
@@ -292,8 +287,7 @@ class Player:
 
     def make_greedy_move(self, greediness, game: GameState, *, stochasticity: float = 0.1) -> None:
         """Choose among top‑*greediness* scoring moves; pick randomly with *stochasticity*."""
-        valid_and_adjacent = game.adj_mask & (is_valid(game.state) != 0)
-        yx = np.argwhere(valid_and_adjacent)
+        yx = np.argwhere(game.adj_mask)
         if len(yx) == 0:
             self.make_random_move(game)
             return
@@ -301,7 +295,7 @@ class Player:
         # explore with probability "stochasticity"
         if random.random() < stochasticity:
             y, x = yx[np.random.randint(len(yx))]
-            game.add_tile(x, y, self.name, self.roll())
+            game.add_tile(x, y, self, self.roll())
             return
 
         scores = []
@@ -341,8 +335,8 @@ class Player:
 
     def make_flat_monte_carlo_move(self, game: GameState, players: list["Player"], *, sims: int = 100, stochasticity: float = 0.1) -> None:
         """Flat (one‑ply) Monte‑Carlo search: try every legal move, evaluate via rollouts, picks the best."""
-        valid_and_adjacent = game.adj_mask & (is_valid(game.state) != 0)
-        yx = np.argwhere(valid_and_adjacent)
+        if self.score == 0: yx = np.argwhere(game.state & VALID_MASK)
+        else: yx = np.argwhere(game.adj_mask)
         if len(yx) == 0:
             self.make_random_move(game)
             return
@@ -353,8 +347,9 @@ class Player:
             sim_game = game.clone()
             sim_players = [p.clone() for p in players]
             sim_self = sim_players[players.index(self)]  # map to clone
-            sim_game.add_tile(x, y, sim_self.name, sim_self.roll())
+            sim_game.add_tile(x, y, sim_self, sim_self.roll())
             wr = sim_game.evaluate(sims, stochasticity, sim_players, sim_self)
+            print(f"\rConsidering move {x}, {y} with goodness {wr}", end='', flush=True)
             if wr > best_winrate:
                 best_winrate = wr
                 best_move = (x, y)
@@ -381,20 +376,29 @@ if PlayerCount == 3:
     types.append(P3MoveType)
 
 players = []
+count = -1
 for p, movetype in zip(raw_players, types):
+    count += 1
+    print(raw_players[count], count)
     strat = move_type_map[movetype]
-    p.choose_move = strat.__get__(p, Player)
+    # bind the method to this instance
+    p.choose_move = strat.__get__(p, raw_players[count])
     players.append(p)
 
-game = GameState()
-
+tempcount = 0
 while not game.is_terminal():
-    current_player = players[game.turn % len(players)]
-    current_player.choose_move(game)
+    print("MoveNum:", tempcount)
+    tempcount += 1
+    current_player = players[game.turn % PlayerCount]
+    try:
+        current_player.choose_move(game, players=players)
+    except TypeError:
+        current_player.choose_move(game)
+
 
 winner = game.return_winner(players)
-print(f"Player {winner} wins!")
-
+print(str(winner).capitalize(), "wins!")
+game.display_grid()
 
 #endregion
 """
@@ -410,8 +414,8 @@ Checklist
 9) get "holes" working [✓]
 10) get some basic rules-based bots to play against [✓] 
 11) optimise, esp. state values and excessive loops [✓] # a lot harder than i thought; note one can probably do more, but i didn't do the 80/20
-12) implement MCS bots to encourage deeper thinking [-] # try greedy rollouts and random rollouts
-13) get a reinforcement learning agent to learn this game, with the help of MCS at later stages [X]
+12) implement MCTS bots to encourage deeper thinking [-] # try greedy rollouts and random rollouts
+13) get a reinforcement learning agent to learn this game, with the help of MCTS at later stages [X]
 14) graphical implementation [X]
 15) elo system? [X]
 """
