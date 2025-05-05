@@ -1,17 +1,28 @@
 from __future__ import annotations
-TempVarTotalMoves = 0
+TotalSimulations = 0
 # region Initialize
+
+
+""" TODO
+* MCTS bot places tiles where it shouldn't. Including over opponent's tiles and in holes.
+* Better localise TotalSimulations
+* Further optimisation, maybe JIT compile hot loops, maybe w/ numba
+* Make this more suitable for AI training, add better interfacing.
+* Maybe restructure X and Y each to take 4 bits, rather than have X at 5 and Y at 3.
+* Work on a GUI !
+* Finish MinMax bot."""
+
 import numpy as np 
 import random
 import time
 import copy
 import re  # regex
+import math
 
 PlayerCount= 2
-P1MoveType = 2
+P1MoveType = 1
 P2MoveType = 7
 P3MoveType = 1
-
 
 # 0: None,
 # 1: Player.make_human_move,
@@ -26,8 +37,8 @@ P3MoveType = 1
 bit 15 (the first one), shows if you can place a tile on it.
 bits 14-13 (the next two) show their owner
 bits 12-8 (the next 5) contain their value
-bits 7-3 contain a tile's x value (so the AI can understand the grid better)
-bits 2-0 contain a tile's y value
+bits 7-3 (the next 5) contains a tile's x value (so the AI can understand the grid better)
+bits 2-0 (the next 3) contain a tile's y value
 nice and snug!"""
 VALID_MASK = 0b1000000000000000
 OWNER_MASK = 0b0110000000000000
@@ -81,7 +92,6 @@ class GameState:
     evenrowoffsets= [(-1, 0), (1, 0), (-1, -1), (0, -1), (-1, 1), (0, 1)],
     oddrowoffsets=[(-1, 0), (1, 0), (0, -1), (1, -1), (0, 1), (1, 1)]
     
-
 ):
         # Grid dimensions and settings
         self.turn = turn
@@ -91,27 +101,29 @@ class GameState:
         self.hole_percentage = hole_percentage
         self.evenrowoffsets = evenrowoffsets
         self.oddrowoffsets = oddrowoffsets
-        turn_max = self.x_max * self.y_max
+        self.turn_max = self.x_max * self.y_max
 
         self.state = self.initialize_state()
+        self.neighbor_map = self.precompute_neighbors()
         
         self.adj_mask = np.zeros((y_max, x_max), dtype=bool)
-        
         
 
     
     def initialize_state(self): # This initialises a 10x8 grid, with each tile having a 16-bit value.
-        grid = np.full((self.y_max, self.x_max), VALID_MASK, dtype=np.uint16)
+        grid = np.full((self.y_max, self.x_max), VALID_MASK, dtype=np.uint16) 
+
         if self.hole_percentage != 0:
             hole_mask = np.random.rand(self.y_max, self.x_max) < (self.hole_percentage / 100)
-            grid[hole_mask] &= (~VALID_MASK & 0xFFFF) # This gets rid of the valid bits on the holes.
+            grid[hole_mask] &= (~VALID_MASK & 0xFFFF)               # This gets rid of the valid bits on the holes.
         
+        self.valid_count = np.count_nonzero(hole_mask)
         xMask = np.arange(0, self.y_max*self.x_max) % self.x_max 
-        yMask = np.arange(0, self.y_max*self.x_max) // self.x_max # Makes a mask of the X and y values,
-        xMask = xMask.reshape(self.y_max, self.x_max) # makes it shaped like the grid, 
+        yMask = np.arange(0, self.y_max*self.x_max) // self.x_max   # Makes a mask of the X and y values,
+        xMask = xMask.reshape(self.y_max, self.x_max)               # makes it shaped like the grid, 
         yMask = yMask.reshape(self.y_max, self.x_max)
         
-        grid = grid | yMask # and applies it to the grid.
+        grid = grid | yMask                                         # and applies it to the grid.
         grid = grid | xMask << 3 
         return grid
     
@@ -123,16 +135,16 @@ class GameState:
             tiles += str(y)
             if y % 2 == 1: tiles+=indent
             for x, cell in enumerate(row):
-                owner_code = get_owner(cell)
+                owner_code = ((cell >> 13) & 0b11)                  # Gets owner
                 symbol = str(owner_symbols[owner_code])
-                tile_value = get_value(cell)
+                tile_value = ((cell >> 8) & 0b1_1111)               # Gets value
                 
                 if 0 < tile_value < 10: tile_value = str(0) + str(tile_value)
                 elif tile_value == 0: tile_value = ""
                 symbol = symbol + str(tile_value)
                 if owner_code == 0: symbol = str(spacing)+symbol+str(spacing)
                 else: symbol = str(" ")+symbol+str(" ")
-                if not is_valid(cell) and get_value(cell) == 0: symbol = "  X  "
+                if not ((cell & VALID_MASK) != 0) and ((cell >> 8) & 0b1_1111) == 0: symbol = "  X  "  # Is valid + Gets value
                 tiles += symbol
             print(tiles)
 
@@ -144,83 +156,92 @@ class GameState:
         
         print(bottom_x_list)
     
-    def get_adjacent_tiles(self, x, y): # This function returns the tiles surrounding a given tile from a x, y pair. 
-        """This function is VERY costly! Around half of this code's compute (i.e, optimising it could speed up this code a little under 2x). 
-        I am working on precomputing neighbours, and replacing this with something far faster."""
-        offsets = np.array(self.evenrowoffsets if y % 2 == 0 else self.oddrowoffsets)  
-        neighbor_coords = np.array([x, y]) + offsets
-        ys, xs = neighbor_coords[:, 1], neighbor_coords[:, 0]
-        in_bounds = (xs >= 0) & (xs < self.x_max) & (ys >= 0) & (ys < self.y_max)
-        tiles = self.state[ys[in_bounds], xs[in_bounds]]
-        ys, xs = ys[in_bounds], xs[in_bounds]
-        return np.column_stack((xs, ys))
+    def get_adjacent_tiles(self, x, y):         # This function returns the tiles surrounding a given tile from a x, y pair. 
+        return self.neighbor_map[(x, y)]
     
-        def precompute_neighbors(self):
-            for y in self.state:
-                for x, tile in self.state:
-                    offsets = np.array(self.evenrowoffsets if y % 2 == 0 else self.oddrowoffsets)  
-                    neighbor_coords = np.array([x, y]) + offsets
-                    ys, xs = neighbor_coords[:, 1], neighbor_coords[:, 0]
-                    in_bounds = (xs >= 0) & (xs < self.x_max) & (ys >= 0) & (ys < self.y_max)
-                    tiles = self.state[ys[in_bounds], xs[in_bounds]]
-                    ys, xs = ys[in_bounds], xs[in_bounds]
-                    return np.column_stack((xs, ys))
+    def precompute_neighbors(self):
+        NeighborsMap = {}
+        for y, row in enumerate(self.state):
+            for x, tile in enumerate(row):
+                offsets = np.array(self.evenrowoffsets if y % 2 == 0 else self.oddrowoffsets)  
+                neighbor_coords = np.array([x, y]) + offsets
+                ys, xs = neighbor_coords[:, 1], neighbor_coords[:, 0]
+                in_bounds = (xs >= 0) & (xs < self.x_max) & (ys >= 0) & (ys < self.y_max)
+                tiles = self.state[ys[in_bounds], xs[in_bounds]]
+                ys, xs = ys[in_bounds], xs[in_bounds]
+                NeighborsMap[(x, y)] = np.column_stack((xs, ys))
+        return NeighborsMap
+                
 
     def add_tile(self, x, y, player, tile_value): # This adds a tile to the grid, and calls the update_neighors function to absorb/reinforce surrounding tiles.
         self.turn += 1
-        if get_owner(self.state[y][x]) != none: print("Critical Error! Tile already taken.")
-        self.state[y, x] = set_owner(self.state[y, x], player.name)
-        self.state[y, x] = set_value(self.state[y, x], tile_value)
-        self.state[y, x] = set_valid(self.state[y, x], False)
+        if ((self.state[y][x] >> 13) & 0b11) != none: print("Critical Error! Tile already taken.")  # Gets owner.
+        root = self.state[y, x]
+        self.state[y, x] = (
+            (root & (~(OWNER_MASK | VALUE_MASK | VALID_MASK) & 0xFFFF)) # clear out old owner, value, and valid bits, leaving only x/y bits
+            | (player.name  << 13)                                      # insert new owner into bits 14–13
+            | (tile_value   <<  8)                                      # insert new tile value into bits 12–8
+        )
         self.adj_mask[y][x] = False
         self.update_neighbors(x, y, player, tile_value)
+
 
     def update_neighbors(self, x, y, player, tile_value): # This, after one places a tile, adds 1 to all surrounding allies, and changes weaker enemy's owner's to the placer's.  
         """player is the Player instance who just placed tile_value at (x, y)."""
         neighbors = self.get_adjacent_tiles(x, y)
         xs, ys = neighbors[:,0], neighbors[:,1]
-        owners = get_owner(self.state[ys, xs])
-        values = get_value(self.state[ys, xs])
+        owners = ((self.state[ys, xs] >> 13) & 0b11)            # Gets owners.
+        values = ((self.state[ys, xs] >> 8) & 0b1_1111)         # Gets values.
         self._update_adjacency(xs, ys, values)
-        # print(str(player.name)+"!!!!")
         is_ally = (owners == player.name)
         is_weaker_enemy = (owners != player.name) & (owners != none) & (values < tile_value) & (values != 0)
         if np.any(is_weaker_enemy):
             self.state[ys[is_weaker_enemy], xs[is_weaker_enemy]] = set_owner(self.state[ys[is_weaker_enemy], xs[is_weaker_enemy]], player.name)
+            player.score += int(values[is_weaker_enemy].sum()) 
         if np.any(is_ally):
             inc = values[is_ally] + 1
             self.state[ys[is_ally], xs[is_ally]] = set_value(self.state[ys[is_ally], xs[is_ally]], inc)
+            player.score += int(len(is_ally))
         player.score += tile_value      
 
-    def score_from_absorption(self, x, y, player, tile_value): # This returns how many points you'd get from absorbing a tile.
-        score = 0
-        neighbors = self.get_adjacent_tiles(x, y)
-        owners = get_owner(self.state[neighbors[:,1], neighbors[:,0]])
-        values = get_value(self.state[neighbors[:,1], neighbors[:,0]])
-        is_ally = owners == player.name
+    def score_absorption(self, x, y, player, tile_value): # Returns points gained from placing tile_value at (x, y)
+        xs, ys = self.neighbor_map[(x, y)].T # ≤ 6 coords already pre‑computed
+        state  = self.state[ys, xs]          # grab neighbour tiles in one slice
+
+        owners = (state >> 13) & 0b11        # get owners
+        values = (state >>  8) & 0b1_1111    # get values
+
+        is_ally         = owners == player.name
         is_weaker_enemy = (owners != player.name) & (owners != none) & (values < tile_value) & (values != 0)
-        if np.any(is_weaker_enemy):
-            score += values[is_weaker_enemy].sum()
-        if np.any(is_ally):
-            score += (values[is_ally] + 1).sum()
-        return score
+
+        return (values[is_weaker_enemy].sum()   # absorbed enemy points
+              +  values[is_ally].sum()          # ally tile values before +1
+              +  is_ally.sum())                 # +1 per reinforced ally
+
 
     def _update_adjacency(self, xs, ys, values): # This updates the mask that shows which available places to place a tile that are adjacent to a tile. 
         # This makes it faster for bots, since instead of scan== 0ning every tile on the grid to get the greediest move, they only consider tiles that could actually boost their score.
-        is_taken = values != none
+        is_taken   = values != none
         is_untaken = values == none
         self.adj_mask[ys[is_taken], xs[is_taken]] = False
         self.adj_mask[ys[is_untaken], xs[is_untaken]] = True  
 
-    def clone(self): # This function just copies the whole grid, useful for simulation purposes.
-        new = GameState(
-            turn=self.turn,
-            x_max=self.x_max,
-            y_max=self.y_max,
-            roll_max=self.roll_max,
-            hole_percentage=self.hole_percentage,
-            evenrowoffsets=self.evenrowoffsets,
-            oddrowoffsets=self.oddrowoffsets)
+    def clone(self):
+        # Faster clone ! Sped it up by around 20 per cent.
+        # Clones specific parts rather than doing a deep copy and full initialisation every time.
+        new = object.__new__(GameState)
+        new.turn          = self.turn
+        new.x_max         = self.x_max
+        new.y_max         = self.y_max
+        new.roll_max      = self.roll_max
+        new.hole_percentage = self.hole_percentage
+        new.evenrowoffsets = self.evenrowoffsets
+        new.oddrowoffsets  = self.oddrowoffsets
+
+        # reuse the same neighbour_map 
+        new.neighbor_map = self.neighbor_map
+
+        # shallow‑copy only the mutable state
         new.state    = self.state.copy()
         new.adj_mask = self.adj_mask.copy()
         return new
@@ -236,8 +257,8 @@ class GameState:
         idx, _ = max(enumerate(scores), key=lambda x: x[1])
         return idx + 1
 
-    def rollout(self, simnum: int, stochasticity: float, players: list["Player"]): # This plays many simulated games with the greedy bot, and returns a list of who wins.
-        global TempVarTotalMoves
+    def rollout(self, simnum: int, stochasticity: 0.1, players: list["Player"]): # This plays many simulated games with the greedy bot, and returns a list of who wins.
+        global TotalSimulations
         winners = np.empty(simnum, dtype=np.uint8)
         for n in range(simnum):
             sim = self.clone()
@@ -245,15 +266,23 @@ class GameState:
             for p in sim_players:
                 random.shuffle(p.NumBank)
             while not sim.is_terminal():
-                TempVarTotalMoves += 1
                 current_player = sim_players[sim.turn % len(sim_players)]
                 current_player.make_greedy_move(game=sim, greediness=2, stochasticity=stochasticity)
+            TotalSimulations += 1
             winners[n] = sim.return_winner(sim_players)
         return winners
 
     def evaluate(self, simnum: int, stochasticity: float, players: list["Player"], target_player: "Player") -> float: # This gives a ratio of how "good" a move is by the win/loss ratio.
         winners = self.rollout(simnum, stochasticity, players)
         return np.count_nonzero(winners == target_player.name) / simnum
+
+    def get_legal_moves(self):
+        np.argwhere(((game.state & VALID_MASK) != 0))
+
+    def reset_state(self, players: list["Player"]):
+        self.__init__()
+        Player.__init__()
+
 
 class Player:
     def __init__(self, name: int):
@@ -282,31 +311,54 @@ class Player:
         self.MoveNumber += 1
         return tile_value
 
+    def compute_final_reward(self, game: GameState) -> None:
+        win = False
+        scores = [p.score for p in players]
+        winners = game.return_winner(players)
+        if self.state == winners: win = True
+        ScoreRatio = self.score
+        temp = 0
+        for p in players:
+            if p.name == self.name: continue
+            temp += p.score
+        if temp == 0: 
+            print("Warning! Other players' scores equal 0. Proceeding as if they equal one.")
+            temp = 1
+        ScoreRatio = ScoreRatio / (temp / PlayerCount)
+        base = 1 / (1 + math.exp(-10 * ScoreRatio))
+        # This is a mix between a sigmoid function and a win/loss reward system. 
+        return base + 0.7 if win else base # This encourages winnnp.argwhereing, but also rewards higher wins more than close ones, and close wins more than far ones.
+        # https://en.wikipedia.org/wiki/Sigmoid_function
+
+
     # ------------------------------------------------------------
     #  strategies (all share signature: (game, **kwargs))
     # ------------------------------------------------------------
-    def make_random_move(self, game: GameState) -> None: 
+    def make_random_move(self, game: GameState, **kwargs) -> None: 
         """Place on any empty valid tile chosen uniformly at random."""
-        yx = np.argwhere(is_valid(game.state))
+        yx = np.argwhere(((game.state & VALID_MASK) != 0)) # Gets a list of valid tiles.
         if len(yx) == 0:
             raise RuntimeError("No valid tiles left for random move")
         y, x = yx[np.random.randint(len(yx))]
         game.add_tile(x, y, self, self.roll())
 
-    def make_random_adjacent_move(self, game: GameState) -> None: 
+    def make_random_adjacent_move(self, game: GameState, **kwargs) -> None: 
         """Prefer a random adjacent spot; fall back to fully random if none."""
-        if len(yx) != 0: yx = np.argwhere(game.adj_mask)
+        if len(yx) != 0: 
+            valid_mask = (game.state & VALID_MASK) != 0
+            yx = np.argwhere(game.adj_mask & valid_mask)
         if len(yx) == 0:
-            self.make_random_move(game)
+            self.make_random_move(game, **kwargs)
             return
         y, x = yx[np.random.randint(len(yx))]
         game.add_tile(x, y, self, self.roll())
 
-    def make_greedy_move(self, greediness, game: GameState, *, stochasticity: float = 0.1) -> None:
+    def make_greedy_move(self, greediness, game: GameState, *, stochasticity: float = 0.1, **kwargs) -> None:
         """Choose among top‑*greediness* scoring moves; pick randomly with *stochasticity*."""
-        yx = np.argwhere(game.adj_mask)
+        valid_mask = (game.state & VALID_MASK) != 0
+        yx = np.argwhere(game.adj_mask & valid_mask)
         if len(yx) == 0:
-            self.make_random_move(game)
+            self.make_random_move(game, **kwargs)
             return
 
         # explore with probability "stochasticity"
@@ -318,23 +370,22 @@ class Player:
         scores = []
         tile_value = self.roll()  # roll once per decision
         for y, x in yx:
-            score = game.score_from_absorption(x, y, self, tile_value)
+            score = game.score_absorption(x, y, self, tile_value)
             scores.append(((y, x), score))
         top_moves = sorted(scores, key=lambda t: t[1], reverse=True)[:greediness]
         (y, x), _ = random.choice(top_moves)
         game.add_tile(x, y, self, tile_value)
 
-    def make_easy_move(self): # This is a wrapper for make_greedy_move, with a greediness of 5.
-        make_greedy_move(self, greediness=5)
+    def make_easy_move(self, game, **kwargs): # This is a wrapper for make_greedy_move, with a greediness of 5.
+        return self.make_greedy_move(greediness=5, game=game, **kwargs)
 
-    def make_medium_move(self): # This is a wrapper for make_greedy_move, with a greediness of 3.
-        make_greedy_move(self, greediness=3)
+    def make_medium_move(self, game, **kwargs): # This is a wrapper for make_greedy_move, with a greediness of 3.
+        return self.make_greedy_move(greediness=3, game=game, **kwargs)
 
-    def make_hard_move(self): # This is a wrapper for make_greedy_move, with a greediness of 1.
-        make_greedy_move(self, greediness=1)
+    def make_hard_move(self, game, **kwargs):
+        return self.make_greedy_move(greediness=1, game=game, **kwargs)
 
-
-    def make_human_move(self, game: GameState) -> None:
+    def make_human_move(self, game: GameState, **kwargs) -> None:
         """Prompt a human for an X,Y coordinate."""
         game.display_grid()
         while True:
@@ -345,17 +396,23 @@ class Player:
                 print("Format must be X,Y (e.g., 3,5)")
                 continue
             x, y = map(int, m.groups())
-            if 0 <= x < game.x_max and 0 <= y < game.y_max and get_owner(game.state[y][x]) == none and is_valid(game.state[y][x]):
+            if 0 <= x < game.x_max and 0 <= y < game.y_max and ((game.state[y][x] >> 13) & 0b11) == none and ((game.state[y][x] & VALID_MASK) != 0):  # Gets owner / Is valid
                 break
             print("Invalid move; try again.")
         game.add_tile(x, y, self, self.roll())
 
-    def make_flat_monte_carlo_move(self, game: GameState, players: list["Player"], *, sims: int = 100, stochasticity: float = 0.1) -> None:
+    def make_flat_monte_carlo_move(self, game: GameState, players: list["Player"], *, sims: int = 100, stochasticity: float = 0.1, **kwargs) -> None:
         """Flat (one‑ply) Monte‑Carlo search: try every legal move, evaluate via rollouts, picks the best."""
-        # if self.score == 0: yx = np.argwhere(game.state & VALID_MASK)
-        yx = np.argwhere(game.adj_mask)
+        if (game.valid_count - game.turn) >= 0:
+            sims = 3000
+        else:
+            sims = int(round(3000 / ((game.valid_count) - game.turn)))
+        
+        # ^ This means each turn has about 3000 simulations total, but it spreads more thinly early-game.
+        valid_mask = (game.state & VALID_MASK) != 0
+        yx = np.argwhere(game.adj_mask & valid_mask)
         if len(yx) == 0:
-            self.make_random_move(game)
+            self.make_greedy_move(game, **kwargs)
             return
 
         best_winrate = -1.0
@@ -366,13 +423,18 @@ class Player:
             sim_self = sim_players[players.index(self)]  # map to clone
             sim_game.add_tile(x, y, sim_self, sim_self.roll())
             wr = sim_game.evaluate(sims, stochasticity, sim_players, sim_self)
-            global TempVarTotalMoves
-            print(f"\rConsidering move ({x}, {y}) with goodness {wr} at the total number of moves at {TempVarTotalMoves} and simulations roughly at {TempVarTotalMoves // 80}", end='', flush=True)
+            global TotalSimulations
+            elapsed = time.perf_counter() - start
+            print(f"\rConsidering move ({x}, {y}). Its winrate is {round(wr, 3)} with {round(TotalSimulations/elapsed, 3)}/sec ({TotalSimulations} total)", end='', flush=True)
             if wr > best_winrate:
                 best_winrate = wr
                 best_move = (x, y)
         x_b, y_b = best_move
         game.add_tile(x_b, y_b, self, self.roll())
+
+    def make_minmax_move(self, game: GameState, players: list["Player"], *, sims: int = 100, stochasticity: float = 0.1, **kwargs):
+        pass
+
 
 
 move_type_map = {
@@ -385,6 +447,7 @@ move_type_map = {
     6: Player.make_easy_move,
     7: Player.make_flat_monte_carlo_move
 }
+start = time.perf_counter()
 
 game    = GameState()
 raw_players = [Player(red), Player(blue)]
@@ -405,7 +468,7 @@ for p, movetype in zip(raw_players, types):
 
 tempcount = 0
 while not game.is_terminal():
-    print("MoveNum:", tempcount)
+    # print("MoveNum:", tempcount)
     tempcount += 1
     current_player = players[game.turn % PlayerCount]
     try:
@@ -415,7 +478,7 @@ while not game.is_terminal():
 
 
 winner = game.return_winner(players)
-print(str(winner).capitalize(), "wins!")
+print(str(winner).capitalize(), "wins! Scores are", [p.score for p in players])
 game.display_grid()
 
 #endregion
@@ -432,8 +495,9 @@ Checklist
 9) get "holes" working [✓]
 10) get some basic rules-based bots to play against [✓] 
 11) optimise, esp. state values and excessive loops [✓] # a lot harder than i thought; note one can probably do more, but i didn't do the 80/20
-12) implement MCTS bots to encourage deeper thinking [-] # try greedy rollouts and random rollouts
-13) get a reinforcement learning agent to learn this game, with the help of MCTS at later stages [X]
-14) graphical implementation [X]
+12) implement MCS bots to encourage deeper thinking [✓] # try greedy rollouts and random rollouts
+13) get a reinforcement learning agent to learn this game, with the help of forward-thinking bots at later stages [X]
+(MCS is too compute-heavy to work well, at least currently. A greedy minmax, self-training, or something in-between could help.)
+14) graphical implementation [-]
 15) elo system? [X]
 """
