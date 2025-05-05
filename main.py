@@ -2,6 +2,10 @@ from __future__ import annotations
 TotalSimulations = 0
 # region Initialize
 
+PlayerCount= 2
+P1MoveType = 1
+P2MoveType = 7
+P3MoveType = 1
 
 """ TODO
 * MCTS bot places tiles where it shouldn't. Including over opponent's tiles and in holes.
@@ -12,18 +16,15 @@ TotalSimulations = 0
 * Work on a GUI !
 * Finish MinMax bot."""
 
+# region Imports
 import numpy as np 
 import random
 import time
 import copy
 import re  # regex
 import math
-
-PlayerCount= 2
-P1MoveType = 1
-P2MoveType = 7
-P3MoveType = 1
-
+# endregion
+# region Maps
 # 0: None,
 # 1: Player.make_human_move,
 # 2: Player.make_random_move,
@@ -32,7 +33,17 @@ P3MoveType = 1
 # 5: Player.make_medium_move,
 # 6: Player.make_easy_move,
 # 7: Player.make_flat_monte_carlo_move
+# endregion
 
+# Define player "colors” using bit masks
+none, red, blue, green = 0b00, 0b01, 0b10, 0b11
+
+owner_symbols = {
+    0: "·",  # represents no owner
+    1: "R",  # red
+    2: "B",  # green
+    3: "G"   # blue
+}
 """Here's how the bits are structured!
 bit 15 (the first one), shows if you can place a tile on it.
 bits 14-13 (the next two) show their owner
@@ -45,16 +56,8 @@ OWNER_MASK = 0b0110000000000000
 VALUE_MASK = 0b0001111100000000
 X_BITS = 0b0000000011111000
 Y_BITS = 0b0000000000000111
-# Define player "colors” using bit masks
-none, red, blue, green = 0b00, 0b01, 0b10, 0b11
 
-owner_symbols = {
-    0: "·",  # represents no owner
-    1: "R",  # red
-    2: "B",  # green
-    3: "G"   # blue
-}
-
+# region BitMaskOperations
 # 15: IsValid, 14-13: Owner, 13-8 = value, 7 IsAdjacent, 6-3 x, 2-0 y (nice and snug)
 # ADD AN X, Y BIT !! very useful for AI
 def get_owner(tile):
@@ -79,11 +82,13 @@ def set_valid(tile, YN):
 
 def is_valid(tile):
   return tile & VALID_MASK
-
 # endregion
+
 # region PrimaryCode
 
-class GameState:
+
+class GameState:\
+    # region InitGameState
     def __init__(self, 
     turn = 0,
     x_max=10, y_max=8, 
@@ -126,7 +131,8 @@ class GameState:
         grid = grid | yMask                                         # and applies it to the grid.
         grid = grid | xMask << 3 
         return grid
-    
+    #endregion
+
     def display_grid(self):
         spacing = "  "
         indent  = "  "
@@ -179,8 +185,8 @@ class GameState:
         root = self.state[y, x]
         self.state[y, x] = (
             (root & (~(OWNER_MASK | VALUE_MASK | VALID_MASK) & 0xFFFF)) # clear out old owner, value, and valid bits, leaving only x/y bits
-            | (player.name  << 13)                                      # insert new owner into bits 14–13
-            | (tile_value   <<  8)                                      # insert new tile value into bits 12–8
+            | (player.name  << 13)                                      # insert new owner into bits 14–13
+            | (tile_value   <<  8)                                      # insert new tile value into bits 12–8
         )
         self.adj_mask[y][x] = False
         self.update_neighbors(x, y, player, tile_value)
@@ -447,6 +453,7 @@ move_type_map = {
     6: Player.make_easy_move,
     7: Player.make_flat_monte_carlo_move
 }
+# region PrerequistiteCode
 start = time.perf_counter()
 
 game    = GameState()
@@ -467,6 +474,8 @@ for p, movetype in zip(raw_players, types):
     players.append(p)
 
 tempcount = 0
+#endregion
+#region MainLoop
 while not game.is_terminal():
     # print("MoveNum:", tempcount)
     tempcount += 1
@@ -476,10 +485,10 @@ while not game.is_terminal():
     except TypeError:
         current_player.choose_move(game)
 
-
 winner = game.return_winner(players)
 print(str(winner).capitalize(), "wins! Scores are", [p.score for p in players])
 game.display_grid()
+#endregion
 
 #endregion
 """
