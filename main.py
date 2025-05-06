@@ -6,9 +6,9 @@ PlayerCount= 2
 P1MoveType = 1
 P2MoveType = 7
 P3MoveType = 1
-
+CoresToMultiThread = 5
 """ TODO
-* MCTS bot places tiles where it shouldn't. Including over opponent's tiles and in holes.
+* MCS bot places tiles where it shouldn't. Including over opponent's tiles and in holes.
 * Better localise TotalSimulations
 * Further optimisation, maybe JIT compile hot loops, maybe w/ numba
 * Make this more suitable for AI training, add better interfacing.
@@ -23,6 +23,8 @@ import time
 import copy
 import re  # regex
 import math
+from concurrent.futures import ProcessPoolExecutor
+
 # endregion
 # region Maps
 # 0: None,
@@ -253,7 +255,6 @@ class GameState:\
         return new
 
     def is_terminal(self): # This sees if there are any valid moves remaining.
-        # if self.turn > int(self.turn_max): print("Warning: Turn is over the expected maximum of", turn_max)
         return not np.any(self.state & VALID_MASK)
     
     def return_winner(self, players): # This returns a wunner.
@@ -263,19 +264,29 @@ class GameState:\
         idx, _ = max(enumerate(scores), key=lambda x: x[1])
         return idx + 1
 
+
+    def _run_single_rollout(self, stochasticity: 0.1, players: list["Player"]):
+        global TotalSimulations
+        # winner = np.empty(1, dtype=np.uint8)
+        winner = 0b00000000
+        sim = self.clone()
+        sim_players = [p.clone() for p in players]
+        for p in sim_players:
+            random.shuffle(p.NumBank)
+        while not sim.is_terminal():
+            current_player = sim_players[sim.turn % len(sim_players)]
+            current_player.make_greedy_move(game=sim, greediness=2, stochasticity=stochasticity)
+        winner = sim.return_winner(sim_players)
+        return winner
+
     def rollout(self, simnum: int, stochasticity: 0.1, players: list["Player"]): # This plays many simulated games with the greedy bot, and returns a list of who wins.
+        
         global TotalSimulations
         winners = np.empty(simnum, dtype=np.uint8)
+        
         for n in range(simnum):
-            sim = self.clone()
-            sim_players = [p.clone() for p in players]
-            for p in sim_players:
-                random.shuffle(p.NumBank)
-            while not sim.is_terminal():
-                current_player = sim_players[sim.turn % len(sim_players)]
-                current_player.make_greedy_move(game=sim, greediness=2, stochasticity=stochasticity)
+            winners[n] = self._run_single_rollout(stochasticity, players)
             TotalSimulations += 1
-            winners[n] = sim.return_winner(sim_players)
         return winners
 
     def evaluate(self, simnum: int, stochasticity: float, players: list["Player"], target_player: "Player") -> float: # This gives a ratio of how "good" a move is by the win/loss ratio.
@@ -343,16 +354,16 @@ class Player:
     def make_random_move(self, game: GameState, **kwargs) -> None: 
         """Place on any empty valid tile chosen uniformly at random."""
         yx = np.argwhere(((game.state & VALID_MASK) != 0)) # Gets a list of valid tiles.
+        print(np.argwhere(((game.state & VALID_MASK) != 0)))
         if len(yx) == 0:
             raise RuntimeError("No valid tiles left for random move")
         y, x = yx[np.random.randint(len(yx))]
         game.add_tile(x, y, self, self.roll())
 
     def make_random_adjacent_move(self, game: GameState, **kwargs) -> None: 
-        """Prefer a random adjacent spot; fall back to fully random if none."""
-        if len(yx) != 0: 
-            valid_mask = (game.state & VALID_MASK) != 0
-            yx = np.argwhere(game.adj_mask & valid_mask)
+        """Prefer a random adjacent spot; fall back to fully random if none.""" 
+        valid_mask = (game.state & VALID_MASK) != 0
+        yx = np.argwhere(game.adj_mask & valid_mask)
         if len(yx) == 0:
             self.make_random_move(game, **kwargs)
             return
@@ -430,12 +441,14 @@ class Player:
             sim_game.add_tile(x, y, sim_self, sim_self.roll())
             wr = sim_game.evaluate(sims, stochasticity, sim_players, sim_self)
             global TotalSimulations
+            start = time.perf_counter()
             elapsed = time.perf_counter() - start
-            print(f"\rConsidering move ({x}, {y}). Its winrate is {round(wr, 3)} with {round(TotalSimulations/elapsed, 3)}/sec ({TotalSimulations} total)", end='', flush=True)
+            print(f"\rConsidering move ({x}, {y}). Its winrate is {round(wr, 3)} with {round(TotalSimulations/elapsed, 3)} simulations per second ({TotalSimulations} total)", end='', flush=True)
             if wr > best_winrate:
                 best_winrate = wr
                 best_move = (x, y)
         x_b, y_b = best_move
+        print(f"Chose ({x_b}, {y_b})")
         game.add_tile(x_b, y_b, self, self.roll())
 
     def make_minmax_move(self, game: GameState, players: list["Player"], *, sims: int = 100, stochasticity: float = 0.1, **kwargs):
@@ -454,7 +467,6 @@ move_type_map = {
     7: Player.make_flat_monte_carlo_move
 }
 # region PrerequistiteCode
-start = time.perf_counter()
 
 game    = GameState()
 raw_players = [Player(red), Player(blue)]
