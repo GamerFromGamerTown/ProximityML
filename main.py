@@ -3,32 +3,11 @@ TotalSimulations = 0
 # region Initialize
 
 PlayerCount= 2
-P1MoveType = 7
-P2MoveType = 7
+P1MoveType = 4
+P2MoveType = 4
 P3MoveType = 1
 CoresToMultiThread = 5
-""" TODO
-* MCS bot places tiles where it shouldn't. Including over opponent's tiles and in holes.
-* Better localise TotalSimulations
-* Further optimisation, maybe JIT compile hot loops, maybe w/ numba
-* Make this more suitable for AI training, add better interfacing.
-* Maybe restructure X and Y each to take 4 bits, rather than have X at 5 and Y at 3.
-* Work on a GUI !
-* Finish MinMax bot.
-* Create an "extended" adjacency mask, which is the adjacents of adj_mask. Allows for baiting, but computing further moves is often a waste.
-* Scoring seems to be erronous; said the scores are "[754, 789]" when they were 422 - 446"""
 
-# region Imports
-import numpy as np 
-import random
-import time
-import copy
-import re  # regex
-import math
-from concurrent.futures import ProcessPoolExecutor
-
-# endregion
-# region Maps
 # 0: None,
 # 1: Player.make_human_move,
 # 2: Player.make_random_move,
@@ -37,6 +16,27 @@ from concurrent.futures import ProcessPoolExecutor
 # 5: Player.make_medium_move,
 # 6: Player.make_easy_move,
 # 7: Player.make_flat_monte_carlo_move
+
+""" TODO
+* MCS bot places tiles where it shouldn't. Including over opponent's tiles and in holes.
+* Better localise TotalSimulations
+* Further optimisation, maybe JIT compile hot loops, maybe w/ numba
+* Make this more suitable for AI training, add better interfacing.
+* Maybe restructure X and Y each to take 4 bits, rather than have X at 5 and Y at 3.
+* Work on a GUI !
+* Finish MinMax bot.
+* Create an "extended" adjacency mask, which is the adjacents of adj_mask. Allows for baiting, but computing further moves is often a waste."""
+
+# region Imports
+import numpy as np 
+import random
+import time
+import copy
+import re  # regex
+import math
+import torch
+import gymnasium as gym
+from concurrent.futures import ProcessPoolExecutor
 # endregion
 
 # Define player "colors” using bit masks
@@ -48,6 +48,7 @@ owner_symbols = {
     2: "B",  # green
     3: "G"   # blue
 }
+
 """Here's how the bits are structured!
 bit 15 (the first one), shows if you can place a tile on it.
 bits 14-13 (the next two) show their owner
@@ -64,34 +65,20 @@ Y_BITS = 0b0000000000000111
 # region BitMaskOperations
 # 15: IsValid, 14-13: Owner, 13-8 = value, 7 IsAdjacent, 6-3 x, 2-0 y (nice and snug)
 # ADD AN X, Y BIT !! very useful for AI
-def get_owner(tile):
-    return (tile & OWNER_MASK) >> 13
 
 def set_owner(tile, owner):
     cleared = tile & (~OWNER_MASK & 0xFFFF)     # Zero out owner bits
     result = cleared | (owner << 13)
     return np.uint16(result)
 
-def get_value(tile):
-    return (tile & VALUE_MASK) >> 8
-
 def set_value(tile, tile_value):
     cleared = tile & (~VALUE_MASK & 0xFFFF)
     return np.uint16(cleared | (tile_value << 8))
-
-def set_valid(tile, YN):
-    cleared = tile & (~VALID_MASK & 0xFFFF)
-    bit = (VALID_MASK if YN else 0)
-    return np.uint16(cleared | bit)
-
-def is_valid(tile):
-  return tile & VALID_MASK
 # endregion
-
 # region PrimaryCode
 
 
-class GameState:\
+class GameState:
     # region InitGameState
     def __init__(self, 
     turn = 0,
@@ -133,7 +120,7 @@ class GameState:\
         yMask = yMask.reshape(self.y_max, self.x_max)
         
         grid = grid | yMask                                         # and applies it to the grid.
-        grid = grid | xMask << 3 
+        grid = grid | xMask << 4 # changed this recently from 3 to 4, if code is funky this might be it
         return grid
     #endregion
 
@@ -183,7 +170,7 @@ class GameState:\
         return NeighborsMap
                 
 
-    def add_tile(self, x, y, player, tile_value): # This adds a tile to the grid, and calls the update_neighors function to absorb/reinforce surrounding tiles.
+    def add_tile(self, x, y, player, tile_value, players): # This adds a tile to the grid, and calls the update_neighors function to absorb/reinforce surrounding tiles.
         self.turn += 1
         if ((self.state[y][x] >> 13) & 0b11) != none: print("Critical Error! Tile already taken.")  # Gets owner.
         root = self.state[y, x]
@@ -193,10 +180,10 @@ class GameState:\
             | (tile_value   <<  8)                                      # insert new tile value into bits 12–8
         )
         self.adj_mask[y][x] = False
-        self.update_neighbors(x, y, player, tile_value)
+        self.update_neighbors(x, y, player, tile_value, players)
 
 
-    def update_neighbors(self, x, y, player, tile_value): # This, after one places a tile, adds 1 to all surrounding allies, and changes weaker enemy's owner's to the placer's.  
+    def update_neighbors(self, x, y, player, tile_value, players): # This, after one places a tile, adds 1 to all surrounding allies, and changes weaker enemy's owner's to the placer's.  
         """player is the Player instance who just placed tile_value at (x, y)."""
         neighbors = self.get_adjacent_tiles(x, y)
         xs, ys = neighbors[:,0], neighbors[:,1]
@@ -206,9 +193,17 @@ class GameState:\
         is_ally = (owners == player.name)
         is_weaker_enemy = (owners != player.name) & (owners != none) & (values < tile_value) & (values != 0)
         if np.any(is_weaker_enemy):
+            weaker_owners = owners[is_weaker_enemy]
+            weaker_values = values[is_weaker_enemy]
+            
             self.state[ys[is_weaker_enemy], xs[is_weaker_enemy]] = set_owner(self.state[ys[is_weaker_enemy], xs[is_weaker_enemy]], player.name)
             player.score += int(values[is_weaker_enemy].sum()) 
-            ((self.state[ys, xs] >> 13) & 0b11)
+            stolen_per_owner = np.bincount(weaker_owners, weights=weaker_values, minlength=4)
+            for p in players:
+                if stolen_per_owner[p.name] > 0:
+                    p.score -= int(stolen_per_owner[p.name])
+
+            
         if np.any(is_ally):
             inc = values[is_ally] + 1
             self.state[ys[is_ally], xs[is_ally]] = set_value(self.state[ys[is_ally], xs[is_ally]], inc)
@@ -249,7 +244,7 @@ class GameState:\
         new.evenrowoffsets = self.evenrowoffsets
         new.oddrowoffsets  = self.oddrowoffsets
 
-        # reuse the same neighbour_map 
+        # reuse the same neighbor_map 
         new.neighbor_map = self.neighbor_map
 
         # shallow‑copy only the mutable state
@@ -361,7 +356,7 @@ class Player:
         if len(yx) == 0:
             raise RuntimeError("No valid tiles left for random move")
         y, x = yx[np.random.randint(len(yx))]
-        game.add_tile(x, y, self, self.roll())
+        game.add_tile(x, y, self, self.roll(), players)
 
     def make_random_adjacent_move(self, game: GameState, **kwargs) -> None: 
         """Prefer a random adjacent spot; fall back to fully random if none.""" 
@@ -371,7 +366,7 @@ class Player:
             self.make_random_move(game, **kwargs)
             return
         y, x = yx[np.random.randint(len(yx))]
-        game.add_tile(x, y, self, self.roll())
+        game.add_tile(x, y, self, self.roll(), players)
 
     def make_greedy_move(self, greediness, game: GameState, *, stochasticity: float = 0.1, **kwargs) -> None:
         """Choose among top‑*greediness* scoring moves; pick randomly with *stochasticity*."""
@@ -384,7 +379,7 @@ class Player:
         # explore with probability "stochasticity"
         if random.random() < stochasticity:
             y, x = yx[np.random.randint(len(yx))]
-            game.add_tile(x, y, self, self.roll())
+            game.add_tile(x, y, self, self.roll(), players)
             return
 
         scores = []
@@ -394,7 +389,7 @@ class Player:
             scores.append(((y, x), score))
         top_moves = sorted(scores, key=lambda t: t[1], reverse=True)[:greediness]
         (y, x), _ = random.choice(top_moves)
-        game.add_tile(x, y, self, tile_value)
+        game.add_tile(x, y, self, tile_value, players)
 
     def make_easy_move(self, game, **kwargs): # This is a wrapper for make_greedy_move, with a greediness of 5.
         return self.make_greedy_move(greediness=5, game=game, **kwargs)
@@ -419,7 +414,7 @@ class Player:
             if 0 <= x < game.x_max and 0 <= y < game.y_max and ((game.state[y][x] >> 13) & 0b11) == none and ((game.state[y][x] & VALID_MASK) != 0):  # Gets owner / Is valid
                 break
             print("Invalid move; try again.")
-        game.add_tile(x, y, self, self.roll())
+        game.add_tile(x, y, self, self.roll(), players)
 
     def make_flat_monte_carlo_move(self, game: GameState, players: list["Player"], *, sims: int = 100, stochasticity: float = 0.1, **kwargs) -> None:
         """Flat (one‑ply) Monte‑Carlo search: try every legal move, evaluate via rollouts, picks the best."""
@@ -441,7 +436,7 @@ class Player:
             sim_game = game.clone()
             sim_players = [p.clone() for p in players]
             sim_self = sim_players[players.index(self)]  # map to clone
-            sim_game.add_tile(x, y, sim_self, sim_self.roll())
+            sim_game.add_tile(x, y, sim_self, sim_self.roll(), players)
             wr = sim_game.evaluate(sims, stochasticity, sim_players, sim_self)
             global TotalSimulations
             elapsed = time.perf_counter() - start
@@ -452,7 +447,7 @@ class Player:
                 print(f"\nBest Move is currently ({best_move}). Its winrate is {round(best_winrate, 3)})", end='', flush=True)
         x_b, y_b = best_move
         print(f"Chose ({x_b}, {y_b})")
-        game.add_tile(x_b, y_b, self, self.roll())
+        game.add_tile(x_b, y_b, self, self.roll(), players)
 
     def make_minmax_move(self, game: GameState, players: list["Player"], *, sims: int = 100, stochasticity: float = 0.1, **kwargs):
         pass
@@ -493,7 +488,6 @@ tempcount = 0
 #endregion
 #region MainLoop
 while not game.is_terminal():
-    # print("MoveNum:", tempcount)
     tempcount += 1
     current_player = players[game.turn % PlayerCount]
     try:
