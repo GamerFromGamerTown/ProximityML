@@ -3,7 +3,7 @@ TotalSimulations = 0
 # region Initialize
 
 PlayerCount= 2
-P1MoveType = 1
+P1MoveType = 7
 P2MoveType = 7
 P3MoveType = 1
 CoresToMultiThread = 5
@@ -14,7 +14,9 @@ CoresToMultiThread = 5
 * Make this more suitable for AI training, add better interfacing.
 * Maybe restructure X and Y each to take 4 bits, rather than have X at 5 and Y at 3.
 * Work on a GUI !
-* Finish MinMax bot."""
+* Finish MinMax bot.
+* Create an "extended" adjacency mask, which is the adjacents of adj_mask. Allows for baiting, but computing further moves is often a waste.
+* Scoring seems to be erronous; said the scores are "[754, 789]" when they were 422 - 446"""
 
 # region Imports
 import numpy as np 
@@ -124,7 +126,7 @@ class GameState:\
             hole_mask = np.random.rand(self.y_max, self.x_max) < (self.hole_percentage / 100)
             grid[hole_mask] &= (~VALID_MASK & 0xFFFF)               # This gets rid of the valid bits on the holes.
         
-        self.valid_count = np.count_nonzero(hole_mask)
+        self.valid_count = int(np.count_nonzero(hole_mask))
         xMask = np.arange(0, self.y_max*self.x_max) % self.x_max 
         yMask = np.arange(0, self.y_max*self.x_max) // self.x_max   # Makes a mask of the X and y values,
         xMask = xMask.reshape(self.y_max, self.x_max)               # makes it shaped like the grid, 
@@ -206,6 +208,7 @@ class GameState:\
         if np.any(is_weaker_enemy):
             self.state[ys[is_weaker_enemy], xs[is_weaker_enemy]] = set_owner(self.state[ys[is_weaker_enemy], xs[is_weaker_enemy]], player.name)
             player.score += int(values[is_weaker_enemy].sum()) 
+            ((self.state[ys, xs] >> 13) & 0b11)
         if np.any(is_ally):
             inc = values[is_ally] + 1
             self.state[ys[is_ally], xs[is_ally]] = set_value(self.state[ys[is_ally], xs[is_ally]], inc)
@@ -420,14 +423,14 @@ class Player:
 
     def make_flat_monte_carlo_move(self, game: GameState, players: list["Player"], *, sims: int = 100, stochasticity: float = 0.1, **kwargs) -> None:
         """Flat (one‑ply) Monte‑Carlo search: try every legal move, evaluate via rollouts, picks the best."""
-        if (game.valid_count - game.turn) >= 0:
-            sims = 3000
-        else:
-            sims = int(round(3000 / ((game.valid_count) - game.turn)))
-        
+        L = 600  # upper limit
+        k = 6    # growth rate (adjust)
+        x0 = 39.5  # midpoint
+        sims = int(round(100 + (L - 100) / (1 + math.exp(-k * (game.turn - x0) / 79))))
+
         # ^ This means each turn has about 3000 simulations total, but it spreads more thinly early-game.
         valid_mask = (game.state & VALID_MASK) != 0
-        yx = np.argwhere(game.adj_mask & valid_mask)
+        yx = np.argwhere(valid_mask)
         if len(yx) == 0:
             self.make_greedy_move(game, **kwargs)
             return
@@ -441,12 +444,12 @@ class Player:
             sim_game.add_tile(x, y, sim_self, sim_self.roll())
             wr = sim_game.evaluate(sims, stochasticity, sim_players, sim_self)
             global TotalSimulations
-            start = time.perf_counter()
             elapsed = time.perf_counter() - start
             print(f"\rConsidering move ({x}, {y}). Its winrate is {round(wr, 3)} with {round(TotalSimulations/elapsed, 3)} simulations per second ({TotalSimulations} total)", end='', flush=True)
             if wr > best_winrate:
                 best_winrate = wr
                 best_move = (x, y)
+                print(f"\nBest Move is currently ({best_move}). Its winrate is {round(best_winrate, 3)})", end='', flush=True)
         x_b, y_b = best_move
         print(f"Chose ({x_b}, {y_b})")
         game.add_tile(x_b, y_b, self, self.roll())
@@ -467,6 +470,7 @@ move_type_map = {
     7: Player.make_flat_monte_carlo_move
 }
 # region PrerequistiteCode
+start = time.perf_counter()
 
 game    = GameState()
 raw_players = [Player(red), Player(blue)]
